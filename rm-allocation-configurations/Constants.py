@@ -805,4 +805,59 @@ SUMMARY_FARE_COLUMNS = [
 NEXTGEN_SUMMARY_FARE_COLUMNS = [
     'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
     'NG_AF_Forecast', 'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare'
-]
+]
+
+
+ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = {
+    "OBFare": "obFare",
+    "OBSeats": "obSeats",
+    "b2bOutbound_Stop": "Outbound_Stop",
+    "carrExclusionB2B": "CarrExlusionB2B",
+    "carrExclusionB2C": "CarrExlusionB2C",
+    "curveId": "CurveID",
+    "startTime": "TimeWindowStart",
+    "endTime": "TimeWindowEnd",
+    "firstAllocation": "FirstRBDAlloc",
+    "otherAllocation": "OtherRBDAlloc",
+    "skippingFactor": "SkippingFactor",
+    "b2bBackstop": "B2BBackstop",
+    "b2cBackstop": "B2CBackstop",
+    "b2bFactor": "B2BFactor",
+    "b2bTolerance": "B2BTolerance",
+    "b2cTolerance": "B2CTolerance",
+    "tbfEnhFlag": "TBFEnhFlag",
+    "marketfare_Upsell": "Marketfare_Upsell",
+    "spoilage_Flag": "Spoilage_Flag",
+    "canAdjustedForecast": "CanAdjustedForecast",
+    "profileFareUpsell": "ProfileFareUpsell",
+    "daySpan": "DaySpan",
+    "autoTimeRangeFlag": "AutoTimeRangeFlag",
+    "overBooking": "OverBooking",
+    "cugFlag": "CugFlag",
+    "mktFareFlag": "MktFareFlag",
+}
+
+ML_AUDIT_BOOLEAN_FLAG_COLUMNS = {
+    "openingFares",
+    "AutoTimeRangeFlag",
+    "OverBooking",
+    "profileFares",
+    "rbdPushFlag",
+    "distressInventoryFlag",
+    "seriesBlock",
+    "autoGroup",
+    "autoBackstopFlag",
+    "tbfFlag",
+    "CugFlag",
+    "MktFareFlag",
+    "directFlag",
+    "TBFEnhFlag",
+    "defaultMlFlag",
+    "forecastAllocFlag",
+    "afForecastAllocFlag",
+    "auto_tolerance_flag",
+    "incrementedProfileFareFlag",
+    "Spoilage_Flag",
+    "CanAdjustedForecast",
+    "market_station_mapping",
+}
