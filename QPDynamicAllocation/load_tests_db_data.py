@@ -92,7 +92,9 @@ class Schema:
 
     def load_generic_collection(self, collectionName, dataFile, use_dw=False):
         """Load a CSV file into a MongoDB Collection"""
-        rawdata = pd.read_csv(f"{sys.path[0]}/testcases/input/" + dataFile)
+        import os
+        csv_path = os.path.join(os.path.dirname(__file__), "testcases", "input", dataFile)
+        rawdata = pd.read_csv(csv_path)
         
         if collectionName in ["market_fares_ag", "market_fares_rg"]:
             # Convert departure_date to full datetime (MongoDB compatible)

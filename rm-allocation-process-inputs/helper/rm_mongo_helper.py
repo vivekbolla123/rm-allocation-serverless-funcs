@@ -179,11 +179,18 @@ class MarketFareMongoDB:
                         {
     "$set": {
       "outbound_departuretime": {
-        "$dateFromString": {
-          "dateString": {
-            "$concat": ["1970-01-01T", "$outbound_departuretime"]
+        "$cond": {
+          "if": {"$eq": [{"$type": "$outbound_departuretime"}, "string"]},
+          "then": {
+            "$dateFromString": {
+              "dateString": {
+                "$concat": ["1970-01-01T", "$outbound_departuretime"]
+              },
+              "format": "%Y-%m-%dT%H:%M",
+              "onError": None
+            }
           },
-          "format": "%Y-%m-%dT%H:%M"
+          "else": "$outbound_departuretime"
         }
       }
     }
@@ -216,11 +223,18 @@ class MarketFareMongoDB:
                         {
     "$set": {
       "outbound_departuretime": {
-        "$dateFromString": {
-          "dateString": {
-            "$concat": ["1970-01-01T", "$outbound_departuretime"]
+        "$cond": {
+          "if": {"$eq": [{"$type": "$outbound_departuretime"}, "string"]},
+          "then": {
+            "$dateFromString": {
+              "dateString": {
+                "$concat": ["1970-01-01T", "$outbound_departuretime"]
+              },
+              "format": "%Y-%m-%dT%H:%M",
+              "onError": None
+            }
           },
-          "format": "%Y-%m-%dT%H:%M"
+          "else": "$outbound_departuretime"
         }
       }
     }
@@ -301,19 +315,21 @@ class MarketFareMongoDB:
         """
         try:
             # --- 1. Parameter Setup (Matches original SQL function) ---
-            origin = currParams.sector1[:3]
-            destination = currParams.sector2[3:]
+            origin = getattr(currParams, 'origin', None) or (currParams.sector1[:3] if hasattr(currParams, 'sector1') and currParams.sector1 else '')
+            destination = getattr(currParams, 'destin', None) or (currParams.sector2[3:] if hasattr(currParams, 'sector2') and currParams.sector2 else '')
             
             if channel == B2B_CHANNEL:
-                carr_exclusion = currParams.carrierExclusionB2B
+                carr_exclusion = getattr(currParams, 'carrierExclusionB2B', getattr(currParams, 'carr_exclusion_b2b', None))
             else:
-                carr_exclusion = currParams.carrierExclusionB2C
+                carr_exclusion = getattr(currParams, 'carrierExclusionB2C', getattr(currParams, 'carr_exclusion_b2c', None))
     
             carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
-            # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.
-            fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+            try:
+                fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+            except Exception:
+                fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
             start_of_day = datetime.combine(fltDate, datetime.min.time())
             end_of_day = datetime.combine(fltDate, datetime.max.time())
 

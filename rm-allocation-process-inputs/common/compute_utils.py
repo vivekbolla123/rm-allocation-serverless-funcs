@@ -404,3 +404,25 @@ def safe_float(val, default=0.0):
     return float(val)
   except (ValueError, TypeError):
     return default
+
+
+def safe_round_fare(val, default=CONST_NA):
+  """Safely round a fare value to the nearest integer, preserving NA/None/alphanumeric strings."""
+  if val is None or pd.isna(val):
+    return default
+  s = str(val).strip()
+  if s.upper() in ('', 'NA', 'NONE', 'NAN', 'NULL', 'CONST_NA'):
+    return default
+  if any(c.isalpha() for c in s):
+    return val
+  try:
+    f = float(s)
+    return int(round(f))
+  except (ValueError, TypeError):
+    return val
+
+
+# Re-exported from Constants for backward compatibility
+from Constants import SUMMARY_FARE_COLUMNS, NEXTGEN_SUMMARY_FARE_COLUMNS
+
+

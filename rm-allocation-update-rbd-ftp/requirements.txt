@@ -7,6 +7,6 @@ redis==5.0.1
 numpy==1.26.4
 mysql-connector-python
 pymysql
-pymongo
+pymongo==4.8.0
 datadog-lambda
 cryptography

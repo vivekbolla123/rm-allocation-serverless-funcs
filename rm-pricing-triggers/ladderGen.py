@@ -1972,7 +1972,8 @@ class LadderGen:
 
         # Base GP ratio and boosted top ratio
         r = (max_fare / min_fare) ** (1.0 / (n - 1))
-        top_ratio = top_f * r
+        rg = r - 1
+        top_ratio = (top_f * rg) + 1
         self.logger.info(f"  {channel_label} base GP r = {r:.6f}, top ratio = {top_f}*r = {top_ratio:.6f}, top_n = {top_n}")
 
         # --- TOP SEGMENT: reverse GP downward from max ---

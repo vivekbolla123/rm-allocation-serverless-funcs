@@ -128,9 +128,9 @@ class AdditiveEsbHelper:
             AND qdb.BookingDate >= '{booking_cutoff}' AND qdb.BookingDate < '{today}'
         WHERE fm.DepartureDate BETWEEN '{today}' AND '{forward_end}'
             AND ({fm_station_conditions})
-            AND fm.FlightNumber < 6000
             AND fm.CarrierCode = 'QP'
             AND fm.Status <> 2
+            AND fm.FlightNumber < 7000
             AND fm.AdjustedCapacity > 0
         GROUP BY fm.InventoryLegID, fm.DepartureStation, fm.ArrivalStation, fm.STD,
                  fm.FlightNumber, fm.Capacity, fm.DepartureDate,
@@ -286,7 +286,13 @@ class AdditiveEsbHelper:
                     new_dfs.append(pd.read_sql(__import__('sqlalchemy').text(q), conn))
             if new_dfs:
                 new_std = pd.concat(new_dfs, ignore_index=True)
-                std_cache = pd.concat([std_cache, new_std], ignore_index=True)
+                # Only concat non-empty frames: concatenating an empty/all-NA
+                # std_cache triggers a pandas FutureWarning about dtype handling
+                # of empty entries. When the cache is empty, new_std IS the cache.
+                if std_cache is not None and not std_cache.empty:
+                    std_cache = pd.concat([std_cache, new_std], ignore_index=True)
+                else:
+                    std_cache = new_std
                 std_cache.drop_duplicates(subset=['InventoryLegID'], keep='last', inplace=True)
                 for sector in active_sectors:
                     sector_std = std_cache[std_cache['Sector'] == sector]
