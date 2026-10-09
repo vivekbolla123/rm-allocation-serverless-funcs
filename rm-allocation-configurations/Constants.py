@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 
 DYNAMIC_D3_D4 = -99
@@ -18,7 +19,7 @@ CONNECTION_CARRIER_INCLUSION = '["6E","AI","IX","XY","FZ","GF","J9","KU","FD","S
 NAVODS_ALERT_SECTOR_LIST = '["BOMDEL1127", "BOMDEL1120", "DELBOM1719", "DELBOM1411", "BOMDBR1529", "DBRBOM1530", "CCUBOM1125", "CCUBOM1173"]'
 NAVODS_ALERT_MAX_NDO = 3
 
-DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0"}'
+DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0", "buy_up_factor_NG": "0.0", "connection_fare_flag_NG": "0", "additional_connection_duration_NG": "4.0", "CompetitionResponseGrid_NG": "DEFAULT", "nextgen_flag_NG": "0", "competition_response_flag_NG": "1", "PromoFlag_NG": "0"}'
 DEFAULT_MARKET_LIST_DAYS = 30
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
@@ -302,6 +303,27 @@ W_ANCHOR_KEY = 'W_ANCHOR'
 MOVEMENT_GAIN_KEY = 'MOVEMENT_GAIN'
 MOVEMENT_FLOOR_PCT_KEY = 'MOVEMENT_FLOOR_PCT'
 MOVEMENT_CEIL_PCT_KEY = 'MOVEMENT_CEIL_PCT'
+EMSR_SIGMA_FACTOR_KEY = 'EMSR_SIGMA_FACTOR'
+PROMO_FARE_RATIO_KEY = 'PROMO_FARE_RATIO'
+PROMO_RBD_KEY = 'PROMO_RBD'
+PROMO_FLAG_NG_KEY = 'PromoFlag_NG'
+PROMO_RBD_NG_KEY = 'PromoRBD_NG'
+PROMO_FIRST_RBD_NG_KEY = 'PromoFirstRBD_NG'
+PROMO_RATIO_NG_KEY = 'PromoRatio_NG'
+PROMO_FIRST_RBD_KEY = 'PROMO_FIRST_RBD'
+OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
+BUY_UP_FACTOR_KEY = 'BUY_UP_FACTOR'
+DEFAULT_FIRST_RBD_SEATS_KEY = 'DEFAULT_FIRST_RBD_SEATS'
+FIRST_RBD_ALLOC_KEY = 'FirstRBDAlloc'
+DEFAULT_STANDARD_DEVIATION_FACTOR_KEY = 'DEFAULT_STANDARD_DEVIATION_FACTOR'
+DEFAULT_PROMO_FARE_FACTOR_KEY = 'DEFAULT_PROMO_FARE_FACTOR'
+DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY = 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU'
+DEFAULT_COVERAGE_PARAMETER_KEY = 'DEFAULT_COVERAGE_PARAMETER'
+DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY = 'DEFAULT_ADDITIONAL_CONNECTION_DURATION'
+DEFAULT_TIME_RANGE_KEY = 'DEFAULT_TIME_RANGE'
+DEFAULT_PMIN_THRESHOLD_FACTOR_NG_KEY = 'DEFAULT_PMIN_THRESHOLD_FACTOR_NG'
+PMIN_THRESHOLD_FACTOR_NG_KEY = 'pmin_threshold_factor_NG'
+ML_FLAG_COLUMNS_KEY = 'ML_FLAG_COLUMNS'
 LATEST_VERSION = '4.0.0'
 
 TABLE_MARKET_FARES = "market_fares"
@@ -380,20 +402,44 @@ CONST_NDO_BAND = "ndo_bands"
 CONST_DPLF_BAND = "dplf_bands"
 CONST_DYNAMIC_D1_D2 = "d1_d2_strategies"
 CONST_LAST_SELLING_FARE = "lastSellingFare"
+CONST_COMP_RESPONSE_GRID = "comp_response_grid"
+CONST_COMP_RESPONSE_PLF_BANDS = "comp_response_plf_bands"
+CONST_COMP_FARE_RECALIBRATION = "comp_fare_recalibration"
 
 CONST_RUN_SUMMARY = "run_summary"
 CONST_RUN_AUDIT = "allocation_run_audit"
 CONST_SUMMARY_FILE = "Summary"
+CONST_SUMMARY_NEXTGEN_FILE = "Summary_NextGen"
 CONST_AU_GRID = "AUGrid"
 
-CONST_MARKET_LIST_FILE_PATH = f"{sys.path[0]}/params/MarketList.csv"
-CONST_MARKET_LIST_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/params/MarketList_Connections.csv"
-CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/AUGrid.csv"
-CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary.csv"
-CONST_AU_GRID_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/AUGrid_sales.csv"
-CONST_SUMMARY_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_sales.csv"
-CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/testcases/output/generated_output/AUGrid_Connections.csv"
-CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_Connections.csv"
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TESTCASES_DIR = os.path.join(_ROOT_DIR, "QPDynamicAllocation", "testcases")
+
+CONST_MARKET_LIST_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList.csv")
+CONST_MARKET_LIST_CONNECTIONS_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList_Connections.csv")
+CONST_AU_GRID_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid.csv")
+CONST_SUMMARY_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary.csv")
+CONST_NEXTGEN_OUTPUT_DIR = os.path.join(_TESTCASES_DIR, "outputnexgen", "generated_output")
+CONST_SUMMARY_NEXTGEN_FILE_PATH = os.path.join(CONST_NEXTGEN_OUTPUT_DIR, "summary_nextgen.csv")
+CONST_INVENTORY_OPTIMIZATION_FILE_PATH = os.path.join(CONST_NEXTGEN_OUTPUT_DIR, "inventory_optimization.csv")
+CONST_AU_GRID_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_sales.csv")
+CONST_SUMMARY_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_sales.csv")
+CONST_AU_GRID_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_Connections.csv")
+CONST_SUMMARY_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_Connections.csv")
+
+# NextGen AU Optimization & Competition Response Parameters
+DEFAULT_FIRST_RBD_SEATS = 20
+DEFAULT_STANDARD_DEVIATION_FACTOR = 0.25
+DEFAULT_PROMO_FARE_FACTOR = 0.80
+DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
+DEFAULT_COVERAGE_PARAMETER = 3.0
+DEFAULT_ADDITIONAL_CONNECTION_DURATION = 4.0
+DEFAULT_TIME_RANGE = 2.0
+DEFAULT_PROMO_FLAG_NG = 0
+DEFAULT_PROMO_RBD_NG = "W4"
+DEFAULT_PROMO_FIRST_RBD_NG = 10
+DEFAULT_PROMO_RATIO_NG = 0.80
+DEFAULT_PMIN_THRESHOLD_FACTOR_NG = 0.1
 
 CONST_OUTPUT_SUMMARY_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
@@ -409,7 +455,35 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM', 'ALLIN_AF_NB_LY',
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
-    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor'
+    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor',
+    'NG_LF_Forecast', 'NG_AF_Forecast', 'NG_Historical_current_booked',
+    'NG_Opening_fare', 'NG_FirstRBD', 'NG_Strategy_fare', 'NG_Anchor_fare'
+]
+
+CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
+    'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
+    'NG_FirstRBD', 'Predicted_Flown_Revised',
+    'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
+    'buy_up_factor', 'RunId', 'Id',
+    'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
+    'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
+    'analystName', 'status', 'allocationStatus'
+]
+
+CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
+    'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
+    'fare', 'fare_All_in',
+    'oal_b2c_min', 'oal_b2c_min_All_in',
+    'anchor_fare', 'anchor_fare_All_in',
+    'strategy_fare', 'strategy_fare_All_in',
+    'opening fare', 'opening fare_All_in',
+    'Promo_Flag',
+    'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
+    'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
+    'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
+    'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
+    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
 ]
 
 
@@ -448,6 +522,10 @@ TESTING_LOGS = {
     CONST_RUN_AUDIT: SKIP
 }
 TESTING_OUTPUT = {
+    CONST_AU_GRID: FILE,
+    CONST_SUMMARY_FILE: FILE
+}
+TESTING_NEXTGEN_OUTPUT = {
     CONST_AU_GRID: FILE,
     CONST_SUMMARY_FILE: FILE
 }
@@ -650,6 +728,22 @@ PREDICT_CHUNK_KEYS = 300
 # cannot bloat the single per-run audit document (Mongo 16 MB limit). 0 = no cap.
 AUDIT_UNMATCHED_KEYS_CAP = 500
 
+# Inventory Optimization (EMSR-b) parameters
+EMSR_SIGMA_FACTOR = 0.25               # Cap Sigma_Bar at Factor * Mu_Bar (default 0.25)
+PROMO_FARE_RATIO = 0.80                # Promo fare is 80% of lowest filed fare
+PROMO_RBD = 'W'                        # RBD for promo fare
+PROMO_FLAG_NG = DEFAULT_PROMO_FLAG_NG
+PROMO_RBD_NG = DEFAULT_PROMO_RBD_NG
+PROMO_FIRST_RBD_NG = DEFAULT_PROMO_FIRST_RBD_NG
+PROMO_RATIO_NG = DEFAULT_PROMO_RATIO_NG
+PMIN_THRESHOLD_FACTOR_NG = DEFAULT_PMIN_THRESHOLD_FACTOR_NG
+OPEN_BUCKET_MIDPOINT_FACTOR = 1.10     # Midpoint factor for upper open-ended fare bucket (e.g. 25088+)
+# Buy-up factor (alpha) applied to the EMSR-b sell-up probability:
+#   Prob_j = (1 - f_(j+1) / F_j) * 1 / (1 - alpha)
+# Raising alpha raises every probability, hence z, hence the protection limits, so
+# more seats are held back for higher fares. Initial value is 0 (no buy-up), which
+# leaves the ladder identical to the un-factored formula.
+BUY_UP_FACTOR = 0.0
 # --- Additive-model LOGIC constants (subject to tuning) -----------------------
 # Geometric-progression fare-bucket count. GP generates this many boundary
 # points; consecutive duplicates collapse, so a sector may end with FEWER
@@ -699,3 +793,72 @@ FARE_BUCKET_RBDS = [
     'R0', 'R1', 'R2', 'R3', 'R4', 'T0', 'T1', 'T2', 'T3', 'T4',
     'U0', 'U1', 'U2', 'U3', 'U4', 'V0', 'V1', 'V2', 'V3', 'V4',
 ]
+
+SUMMARY_FARE_COLUMNS = [
+    'Backstop', 'hardAnchorFare', 'strategyFare', 'lastSellingFare', 'profileFare',
+    'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue', 'anchorFare',
+    'SellingFare', 'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM',
+    'ALLIN_AF_NB_LY', 'grpAdjProfileFare', 'Portfolio_Anchor', 'grpFareAnchor',
+    'Portfolio88_Anchor', 'upsell', 'NG_AF_Forecast', 'NG_Opening_fare',
+    'NG_Strategy_fare', 'NG_Anchor_fare', 'MktFare_Min', 'MktFare_Max', 'autoBackstop'
+]
+
+NEXTGEN_SUMMARY_FARE_COLUMNS = [
+    'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'NG_AF_Forecast', 'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare'
+]
+
+
+ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = {
+    "OBFare": "obFare",
+    "OBSeats": "obSeats",
+    "b2bOutbound_Stop": "Outbound_Stop",
+    "carrExclusionB2B": "CarrExlusionB2B",
+    "carrExclusionB2C": "CarrExlusionB2C",
+    "curveId": "CurveID",
+    "startTime": "TimeWindowStart",
+    "endTime": "TimeWindowEnd",
+    "firstAllocation": "FirstRBDAlloc",
+    "otherAllocation": "OtherRBDAlloc",
+    "skippingFactor": "SkippingFactor",
+    "b2bBackstop": "B2BBackstop",
+    "b2cBackstop": "B2CBackstop",
+    "b2bFactor": "B2BFactor",
+    "b2bTolerance": "B2BTolerance",
+    "b2cTolerance": "B2CTolerance",
+    "tbfEnhFlag": "TBFEnhFlag",
+    "marketfare_Upsell": "Marketfare_Upsell",
+    "spoilage_Flag": "Spoilage_Flag",
+    "canAdjustedForecast": "CanAdjustedForecast",
+    "profileFareUpsell": "ProfileFareUpsell",
+    "daySpan": "DaySpan",
+    "autoTimeRangeFlag": "AutoTimeRangeFlag",
+    "overBooking": "OverBooking",
+    "cugFlag": "CugFlag",
+    "mktFareFlag": "MktFareFlag",
+}
+
+ML_FLAG_COLUMNS = {
+    "openingFares",
+    "AutoTimeRangeFlag",
+    "OverBooking",
+    "profileFares",
+    "rbdPushFlag",
+    "distressInventoryFlag",
+    "seriesBlock",
+    "autoGroup",
+    "autoBackstopFlag",
+    "tbfFlag",
+    "CugFlag",
+    "MktFareFlag",
+    "directFlag",
+    "TBFEnhFlag",
+    "defaultMlFlag",
+    "forecastAllocFlag",
+    "afForecastAllocFlag",
+    "auto_tolerance_flag",
+    "incrementedProfileFareFlag",
+    "Spoilage_Flag",
+    "CanAdjustedForecast",
+    "market_station_mapping",
+}

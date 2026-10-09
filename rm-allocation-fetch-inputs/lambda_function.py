@@ -1227,7 +1227,8 @@ def _process_market_list_docs(base_ml_df, date_df, query_type):
         'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
         'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
         'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag','auto_tolerance_flag'
+        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag','auto_tolerance_flag',
+        'buy_up_factor_NG', 'connection_fare_flag_NG', 'additional_connection_duration_NG', 'CompetitionResponseGrid_NG', 'nextgen_flag_NG', 'competition_response_flag_NG', 'PromoFlag_NG'
     ]
     sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
     connection_cols = [

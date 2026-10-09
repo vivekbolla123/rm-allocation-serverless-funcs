@@ -24,6 +24,7 @@ import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
+import java.util.regex.Pattern;
 
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -64,6 +65,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.text.SimpleDateFormat;
+import com.akasaair.queues.common.Validations.CompetitionResponseValidator;
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
 import static com.akasaair.queues.common.Validations.CommonValidator.*;
 import static com.akasaair.queues.common.Validations.PayloadRestrictionValidator.*;
@@ -656,6 +658,123 @@ public class App implements CommandLineRunner {
                         } catch (Exception e) {
                             listOfErrors.get().add("Error Uploading Forecast Allocation Bands to DB. Please check file content");
                             throw new RuntimeException("Error processing forecast allocation bands: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case COMP_RESPONSE_PLF_BANDS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadCompResponsePlfBandsFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Competition Response PLF Bands to DB. Please check file content");
+                            throw new RuntimeException("Error processing competition response plf bands: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case COMP_RESPONSE_GRID_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadCompResponseGridFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Competition Response Grid to DB. Please check file content");
+                            throw new RuntimeException("Error processing competition response grid: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case COMP_FARE_RECALIBRATION_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadCompFareRecalibrationFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Competition Fare Recalibration to DB. Please check file content");
+                            throw new RuntimeException("Error processing competition fare recalibration: " + e.getMessage(), e);
                         }
                     } catch (Exception ex) {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
@@ -3597,6 +3716,22 @@ public class App implements CommandLineRunner {
     public String getColumnHeaders(String value) {
         String listObj = null;
 
+        // 1. Fetch configured column headers from DB first
+        try {
+            MongoCollection<Document> collection = database.getCollection("config_column_names");
+            Document doc = collection.find(eq("tableName", value)).first();
+
+            if (doc != null) {
+                listObj = doc.getString(COLUMNS_COLUMN_NAME);
+                if (listObj != null && !listObj.trim().isEmpty()) {
+                    return listObj;
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+
+        // 2. Fallback to centralized header constants
         if (SALESINV_RBD_DISTRIBUTION_TABLE_NAME.equalsIgnoreCase(value)) {
             return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME,
                     SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
@@ -3608,42 +3743,39 @@ public class App implements CommandLineRunner {
         }
 
         if (value.startsWith(MARKET_LIST_SALESINV_TABLE_NAME)) {
-            return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
+            return CSV_HEADER_MARKET_LIST_SALESINV;
         }
 
         if (PAYLOAD_RESTRICTION_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "flightNumber,origin,destination,depStart,depEnd,lid,adjustedCapacity";
+            return CSV_HEADER_PAYLOAD_RESTRICTION;
         }
 
         if (AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "ndo_min,ndo_max,n_value";
+            return CSV_HEADER_AUTO_TOLERANCE_NDO_CONFIG;
         }
 
         if (AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "id,band_name,min_value,max_value";
+            return CSV_HEADER_AUTO_TOLERANCE_DELTA_BANDS;
         }
 
         if (AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "band_id,dplf_band_name,forecast_band_name,delta_band_id,g_value";
+            return CSV_HEADER_AUTO_TOLERANCE_GRID_VALUES;
         }
 
-        try {
-            MongoCollection<Document> collection = database.getCollection("config_column_names");
-            Document doc = collection.find(eq("tableName", value)).first();
-
-            if (doc != null) {
-                listObj = doc.getString(COLUMNS_COLUMN_NAME);
-            }
-        } catch (Exception e) {
-            log.error(DATABASE_ACCESS_ERROR_MESSAGE);
-            e.printStackTrace();
+        if (COMP_RESPONSE_PLF_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
+            return CSV_HEADER_COMP_RESPONSE_PLF_BANDS;
         }
 
-        if (listObj == null) {
-            log.error("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
-            return "";
+        if (COMP_RESPONSE_GRID_TABLE_NAME.equalsIgnoreCase(value)) {
+            return CSV_HEADER_COMP_RESPONSE_GRID;
         }
-        return listObj;
+
+        if (COMP_FARE_RECALIBRATION_TABLE_NAME.equalsIgnoreCase(value)) {
+            return CSV_HEADER_COMP_FARE_RECALIBRATION;
+        }
+
+        log.error("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
+        return "";
     }
 
     public void deleteValuesStrategyTable(Set<String> value, String collectionName,
@@ -4098,6 +4230,13 @@ public class App implements CommandLineRunner {
                     .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("incrementedProfileFareFlag", toIntOrKeepSame(marketListEntity.getIncrementedProfileFareFlag()))
                     .append("auto_tolerance_flag", toIntOrKeepSame(marketListEntity.getAuto_tolerance_flag()))
+                    .append("buy_up_factor_NG", toIntOrKeepSame(marketListEntity.getBuy_up_factor_NG()))
+                    .append("connection_fare_flag_NG", toIntOrKeepSame(marketListEntity.getConnection_fare_flag_NG()))
+                    .append("additional_connection_duration_NG", toIntOrKeepSame(marketListEntity.getAdditional_connection_duration_NG()))
+                    .append("CompetitionResponseGrid_NG", toIntOrKeepSame(marketListEntity.getCompetitionResponseGrid_NG()))
+                    .append("nextgen_flag_NG", toIntOrKeepSame(marketListEntity.getNextgen_flag_NG()))
+                    .append("competition_response_flag_NG", toIntOrKeepSame(marketListEntity.getCompetition_response_flag_NG()))
+                    .append("PromoFlag_NG", toIntOrKeepSame(marketListEntity.getPromoFlag_NG()))
                     .append("ProfileFareUpsell", toIntOrKeepSame(marketListEntity.getProfileFareUpsell()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
@@ -4199,6 +4338,13 @@ public class App implements CommandLineRunner {
                 .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
                 .append("incrementedProfileFareFlag", toIntOrKeepSame(e.getIncrementedProfileFareFlag()))
                 .append("auto_tolerance_flag", toIntOrKeepSame(e.getAuto_tolerance_flag()))
+                .append("buy_up_factor_NG", toIntOrKeepSame(e.getBuy_up_factor_NG()))
+                .append("connection_fare_flag_NG", toIntOrKeepSame(e.getConnection_fare_flag_NG()))
+                .append("additional_connection_duration_NG", toIntOrKeepSame(e.getAdditional_connection_duration_NG()))
+                .append("CompetitionResponseGrid_NG", toIntOrKeepSame(e.getCompetitionResponseGrid_NG()))
+                .append("nextgen_flag_NG", toIntOrKeepSame(e.getNextgen_flag_NG()))
+                .append("competition_response_flag_NG", toIntOrKeepSame(e.getCompetition_response_flag_NG()))
+                .append("PromoFlag_NG", toIntOrKeepSame(e.getPromoFlag_NG()))
                 .append("ProfileFareUpsell", toIntOrKeepSame(e.getProfileFareUpsell()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
@@ -4601,6 +4747,13 @@ public class App implements CommandLineRunner {
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
                 .auto_tolerance_flag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG)))
+                .buy_up_factor_NG(record.size() > CSV_HEADER_BUY_UP_FACTOR_NG ? record.get(CSV_HEADER_BUY_UP_FACTOR_NG) : "0.0")
+                .connection_fare_flag_NG(record.size() > CSV_HEADER_CONNECTION_FARE_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_CONNECTION_FARE_FLAG_NG)) : "0")
+                .additional_connection_duration_NG(record.size() > CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG ? record.get(CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG) : "4.0")
+                .CompetitionResponseGrid_NG(record.size() > CSV_HEADER_COMPETITION_RESPONSE_GRID_NG ? record.get(CSV_HEADER_COMPETITION_RESPONSE_GRID_NG) : "DEFAULT")
+                .nextgen_flag_NG(record.size() > CSV_HEADER_NEXTGEN_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_NEXTGEN_FLAG_NG)) : "0")
+                .competition_response_flag_NG(record.size() > CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG)) : "1")
+                .promoFlag_NG(record.size() > CSV_HEADER_PROMO_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_PROMO_FLAG_NG)) : "0")
                 .incrementedProfileFareFlag(convertYNToBoolean(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG)))
                 .ProfileFareUpsell(record.get(CSV_HEADER_PROFILE_FARE_UPSELL))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
@@ -4611,7 +4764,8 @@ public class App implements CommandLineRunner {
     }
 
     private static String convertYNToBoolean(String value) {
-        return "Y".equalsIgnoreCase(value) ? "1" : "0";
+        if (value == null) return "0";
+        return ("Y".equalsIgnoreCase(value) || "1".equals(value) || "true".equalsIgnoreCase(value)) ? "1" : "0";
     }
 
     public List<Object> searchDistinctResults(String fieldName, String collectionName) {
@@ -6520,6 +6674,193 @@ public class App implements CommandLineRunner {
             error_occurred.set(1);
             log.error("Error processing Forecast Allocation Bands: {}", e.getMessage(), e);
             listOfErrors.get().add("Failed to process Forecast Allocation Bands file: " + e.getMessage());
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadCompResponsePlfBandsFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = COMP_RESPONSE_PLF_BANDS_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            List<String> errors = new ArrayList<>();
+            boolean isValid = CompetitionResponseValidator.validatePlfBandsFile(csvData, errors);
+            if (!isValid || !errors.isEmpty()) {
+                listOfErrors.get().addAll(errors);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                return;
+            }
+
+            List<CompetitionResponseValidator.ExtractedPlfBandRow> extracted = CompetitionResponseValidator.extractPlfBands(csvData);
+            List<Document> bandsDocuments = new ArrayList<>();
+            for (CompetitionResponseValidator.ExtractedPlfBandRow r : extracted) {
+                Document doc = new Document();
+                doc.put("id", r.id);
+                doc.put("plf_band", r.plfBand);
+                doc.put("band_name", r.bandName);
+                doc.put("start", r.start);
+                doc.put("end", r.end);
+                bandsDocuments.add(doc);
+            }
+
+            if (!bandsDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document());
+                collection.insertMany(bandsDocuments);
+            }
+
+            try {
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            } catch (Exception s3Ex) {
+                log.warn("Could not backup {} to S3: {}", tableName, s3Ex.getMessage());
+            }
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Competition Response PLF Bands: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Competition Response PLF Bands file: " + e.getMessage());
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadCompResponseGridFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = COMP_RESPONSE_GRID_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            List<String> errors = new ArrayList<>();
+            boolean isValid = CompetitionResponseValidator.validateGridFile(csvData, errors);
+            if (!isValid || !errors.isEmpty()) {
+                listOfErrors.get().addAll(errors);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                return;
+            }
+
+            List<CompetitionResponseValidator.ExtractedGridRow> extracted = CompetitionResponseValidator.extractGridRows(csvData);
+            List<Document> gridDocuments = new ArrayList<>();
+            Set<String> gridNamesToDrop = new HashSet<>();
+            for (CompetitionResponseValidator.ExtractedGridRow r : extracted) {
+                if (r.gridName != null && !r.gridName.trim().isEmpty()) {
+                    gridNamesToDrop.add(r.gridName.trim());
+                }
+                Document doc = new Document();
+                doc.put("grid_name", r.gridName);
+                doc.put("ndo_band", r.ndoBand);
+                doc.put("plf_band", r.plfBand);
+                doc.put("time_range", r.timeRange);
+                doc.put("criteria", r.criteria);
+                doc.put("response_rule", r.responseRule);
+                if (r.tolerance != null) {
+                    doc.put("tolerance", r.tolerance);
+                }
+                gridDocuments.add(doc);
+            }
+
+            if (!gridDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                if (!gridNamesToDrop.isEmpty()) {
+                    List<Bson> deleteFilters = new ArrayList<>();
+                    for (String gn : gridNamesToDrop) {
+                        deleteFilters.add(regex("grid_name", "^" + Pattern.quote(gn) + "$", "i"));
+                    }
+                    Bson deleteFilter = deleteFilters.size() == 1 ? deleteFilters.get(0) : or(deleteFilters);
+                    DeleteResult deleteResult = collection.deleteMany(deleteFilter);
+                    log.info("Deleted {} existing records from {} matching grid_name(s): {}",
+                            deleteResult.getDeletedCount(), tableName, gridNamesToDrop);
+                }
+                collection.insertMany(gridDocuments);
+            }
+
+            try {
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            } catch (Exception s3Ex) {
+                log.warn("Could not backup {} to S3: {}", tableName, s3Ex.getMessage());
+            }
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Competition Response Grid: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Competition Response Grid file: " + e.getMessage());
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadCompFareRecalibrationFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = COMP_FARE_RECALIBRATION_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            List<String> errors = new ArrayList<>();
+            boolean isValid = CompetitionResponseValidator.validateFareRecalibrationFile(csvData, errors);
+            if (!isValid || !errors.isEmpty()) {
+                listOfErrors.get().addAll(errors);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                return;
+            }
+
+            List<CompetitionResponseValidator.ExtractedFareRecalibrationRow> extracted = CompetitionResponseValidator.extractFareRecalibrationRows(csvData);
+            List<Document> recalibrationDocuments = new ArrayList<>();
+            for (CompetitionResponseValidator.ExtractedFareRecalibrationRow r : extracted) {
+                Document doc = new Document();
+                doc.put("Sector", r.sector);
+                for (Map.Entry<String, Double> entry : r.airlineOffsets.entrySet()) {
+                    doc.put(entry.getKey(), entry.getValue());
+                }
+                recalibrationDocuments.add(doc);
+            }
+
+            if (!recalibrationDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document());
+                collection.insertMany(recalibrationDocuments);
+
+                // Update config_column_names so createCSV and UI reflect actual uploaded airline columns
+                try {
+                    List<String> colList = new ArrayList<>();
+                    colList.add("Sector");
+                    colList.addAll(extracted.get(0).airlineOffsets.keySet());
+                    String dynamicCols = String.join(",", colList);
+                    database.getCollection("config_column_names").updateOne(
+                            eq("tableName", tableName),
+                            set("columns", dynamicCols),
+                            new com.mongodb.client.model.UpdateOptions().upsert(true)
+                    );
+                } catch (Exception colEx) {
+                    log.warn("Could not update config_column_names for {}: {}", tableName, colEx.getMessage());
+                }
+            }
+
+            try {
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            } catch (Exception s3Ex) {
+                log.warn("Could not backup {} to S3: {}", tableName, s3Ex.getMessage());
+            }
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Competition Fare Recalibration: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Competition Fare Recalibration file: " + e.getMessage());
             addErrorsToTable(listOfErrors.get(), obj_id);
             throw e;
         } finally {

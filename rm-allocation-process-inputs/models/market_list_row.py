@@ -133,3 +133,27 @@ class MarketListRow:
         # Profile fare upsell percentage — applied when incrementedProfileFareFlag is 1
         # (replaces the standard station upsell with a market-list-level override)
         self.profileFareUpsell = currParams.get("ProfileFareUpsell", CONST_NA)
+
+        # --- NextGen AU Optimization & Competition Response Inputs (BRD-AU_Opt_Competition_Response) ---
+        # Price floor and price cap reuse existing B2CBackstop and hardAnchor
+        self.price_floor = self.b2c_backstop
+        self.price_cap = self.hardanchor
+        self.carrier_exclusion = self.carr_exclusion_b2c
+        self.time_range = parse_numeric(currParams.get("time_range", DEFAULT_TIME_RANGE))
+
+        raw_buy_up = parse_numeric(currParams.get("buy_up_factor_NG", 0.0))
+        self.buy_up_factor_NG = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
+        self.buy_up_factor = self.buy_up_factor_NG
+        self.connection_fare_flag_NG = parse_int_flag(currParams.get("connection_fare_flag_NG", 0), 0)
+        self.connection_fare_flag = self.connection_fare_flag_NG
+        self.additional_connection_duration_NG = parse_numeric(currParams.get("additional_connection_duration_NG", DEFAULT_ADDITIONAL_CONNECTION_DURATION))
+        self.additional_connection_duration = self.additional_connection_duration_NG
+        self.CompetitionResponseGrid_NG = str(currParams.get("CompetitionResponseGrid_NG", "DEFAULT")).strip() or "DEFAULT"
+        self.grid_name = self.CompetitionResponseGrid_NG
+        self.nextgen_flag_NG = parse_int_flag(currParams.get("nextgen_flag_NG", 0), 0)
+        self.nextgen_flag = self.nextgen_flag_NG
+        self.competition_response_flag_NG = parse_int_flag(currParams.get("competition_response_flag_NG", 1), 1)
+        self.competition_response_flag = self.competition_response_flag_NG
+        # NextGen Promo Inventory Flag
+        self.promo_flag_NG = parse_int_flag(currParams.get("PromoFlag_NG", DEFAULT_PROMO_FLAG_NG), DEFAULT_PROMO_FLAG_NG)
+        self.promo_flag = self.promo_flag_NG

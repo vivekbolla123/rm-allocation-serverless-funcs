@@ -1,6 +1,6 @@
 sqlalchemy==1.4.39
 pandas==1.4.3
-pymongo
+pymongo==4.8.0
 boto3
 numpy==1.26.4
 scipy==1.11.4
