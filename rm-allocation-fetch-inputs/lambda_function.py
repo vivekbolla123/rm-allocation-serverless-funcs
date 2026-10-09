@@ -1630,11 +1630,11 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
         index=mkt_list.index
     ).round(1)
 
-    # Only switch for ML / WADD_LB sectors where the model forecast < booked PLF.
-    # LB sectors are unaffected (no switch needed).
+    # Only switch for ML sectors where ML forecast < booked PLF.
+    # LB and WADD_LB sectors are unaffected (WADD_LB has no fallback — it always
+    # uses the additive-model forecast).
     if forecast_model_col and forecast_model_col in mkt_list.columns:
-        model_norm = mkt_list[forecast_model_col].astype(str).str.strip().str.upper()
-        is_ml = model_norm.isin(['ML', 'WADD_LB'])
+        is_ml = mkt_list[forecast_model_col].astype(str).str.strip().str.upper() == 'ML'
     else:
         is_ml = pd.Series(True, index=mkt_list.index)
 

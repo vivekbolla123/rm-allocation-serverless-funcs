@@ -58,8 +58,12 @@ class MarketFareService:
                 except Exception:
                     pass
 
+                # WADD_LB sectors have a forecast across the full 0-180 NDO range.
+                _fc_ndo_max = (int(getattr(self.constantsutils, 'WADD_FORECAST_NDO_MAX', 180))
+                               if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD_LB'
+                               else int(getattr(self.constantsutils, 'FORECAST_ALLOC_NDO_MAX', 30)))
                 is_high_forecast = False
-                if ndo <= 30 and imp_forecast != CONST_NA and not pd.isna(imp_forecast):
+                if ndo <= _fc_ndo_max and imp_forecast != CONST_NA and not pd.isna(imp_forecast):
                     try:
                         is_high_forecast = float(imp_forecast) >= MARKET_FARE_FORECAST_THRESHOLD
                     except (ValueError, TypeError):
