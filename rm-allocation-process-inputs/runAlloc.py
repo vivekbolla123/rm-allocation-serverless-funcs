@@ -2638,7 +2638,13 @@ class DynAlloc:
 				AUlist.append(f'Class Allotted AU Class {i+1}')
 				AUlist.append(f'AP Restriction AU Class {i+1}')
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
-			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
+			AUFrame = AUFrame.drop(
+				columns=[
+					"b2brunid", "b2crunid", "au_column_length",
+					"nav_audit_id", "nextgen_rbd_details", "flight_number", "sector", "departure_date"
+				],
+				errors="ignore"
+			)
 			AUFrame.columns = AUlist
 			# Round off final AUs only in AU grid
 			for col in AUFrame.columns:
