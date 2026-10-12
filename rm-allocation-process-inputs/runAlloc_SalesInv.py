@@ -9,6 +9,7 @@ import pandas as pd
 from Constants import *
 from ownlogger import OwnLogger
 from allocations import RBDAllocations
+from common.compute_utils import safe_round_fare, SUMMARY_FARE_COLUMNS
 
 from helper.redis_helper import RedisHelper
 from helper.rm_database_helper import RMDatabaseHelper
@@ -262,4 +263,7 @@ class DynAllocSalesInv:
         if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and self.allocResults:
             df = pd.DataFrame([vars(row) for row in self.allocResults])
             df = df.drop(columns=["Id"])
+            for col in SUMMARY_FARE_COLUMNS:
+                if col in df.columns:
+                    df[col] = df[col].apply(safe_round_fare)
             df.to_csv(CONST_SUMMARY_SALES_FILE_PATH, index=False)

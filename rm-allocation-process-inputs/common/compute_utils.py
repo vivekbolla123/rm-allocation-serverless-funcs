@@ -74,6 +74,20 @@ def getParsedForecast(self):
   except (ValueError, TypeError):
     return CONST_NA
 
+def getForecastNdoMax(self):
+  """Effective upper NDO bound for applying the forecast PLF.
+
+  LB / ML sectors keep the historical ceiling (FORECAST_ALLOC_NDO_MAX, 30).
+  WADD_LB sectors source their forecast from the additive model, which is
+  generated for every flight in the next 180 days, so the forecast applies
+  across the full 0-180 NDO range (WADD_FORECAST_NDO_MAX).
+  """
+  default_max = int(getattr(self.constantsUtils, 'FORECAST_ALLOC_NDO_MAX', 30))
+  model = str(getattr(self.currParams, 'forecast_model', '') or '').strip().upper()
+  if model == 'WADD_LB':
+    return int(getattr(self.constantsUtils, 'WADD_FORECAST_NDO_MAX', 180))
+  return default_max
+
 def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
   """
   Phase 2 BRD imputed forecast (PLF, 0-100 scale).
@@ -404,3 +418,25 @@ def safe_float(val, default=0.0):
     return float(val)
   except (ValueError, TypeError):
     return default
+
+
+def safe_round_fare(val, default=CONST_NA):
+  """Safely round a fare value to the nearest integer, preserving NA/None/alphanumeric strings."""
+  if val is None or pd.isna(val):
+    return default
+  s = str(val).strip()
+  if s.upper() in ('', 'NA', 'NONE', 'NAN', 'NULL', 'CONST_NA'):
+    return default
+  if any(c.isalpha() for c in s):
+    return val
+  try:
+    f = float(s)
+    return int(round(f))
+  except (ValueError, TypeError):
+    return val
+
+
+# Re-exported from Constants for backward compatibility
+from Constants import SUMMARY_FARE_COLUMNS, NEXTGEN_SUMMARY_FARE_COLUMNS
+
+

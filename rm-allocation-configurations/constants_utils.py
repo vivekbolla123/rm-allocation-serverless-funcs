@@ -49,6 +49,7 @@ class ConstantsUtils:
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         self.TBF_SEATS = TBF_SEATS
         self.FORECAST_ALLOC_NDO_MAX = FORECAST_ALLOC_NDO_MAX
+        self.WADD_FORECAST_NDO_MAX = WADD_FORECAST_NDO_MAX
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
@@ -166,6 +167,31 @@ class ConstantsUtils:
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
         self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(AUTO_BACKSTOP_FORECAST_THRESHOLD)
 
+        # Inventory Optimization (EMSR-b) Constants
+        self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
+        self.PROMO_FARE_RATIO = float(PROMO_FARE_RATIO)
+        self.PROMO_RBD = str(PROMO_RBD)
+        self.PROMO_FLAG_NG = int(DEFAULT_PROMO_FLAG_NG)
+        self.PROMO_RBD_NG = str(DEFAULT_PROMO_RBD_NG)
+        self.PROMO_FIRST_RBD_NG = float(DEFAULT_PROMO_FIRST_RBD_NG)
+        self.PROMO_RATIO_NG = float(DEFAULT_PROMO_RATIO_NG)
+        self.PromoFlag_NG = self.PROMO_FLAG_NG
+        self.PromoRBD_NG = self.PROMO_RBD_NG
+        self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+        self.PromoRatio_NG = self.PROMO_RATIO_NG
+        self.PMIN_THRESHOLD_FACTOR_NG = float(DEFAULT_PMIN_THRESHOLD_FACTOR_NG)
+        self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+        self.DEFAULT_FIRST_RBD_SEATS = float(DEFAULT_FIRST_RBD_SEATS)
+        self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+        self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+        self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(DEFAULT_STANDARD_DEVIATION_FACTOR)
+        self.DEFAULT_PROMO_FARE_FACTOR = float(DEFAULT_PROMO_FARE_FACTOR)
+        self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
+        self.DEFAULT_COVERAGE_PARAMETER = float(DEFAULT_COVERAGE_PARAMETER)
+        self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(DEFAULT_ADDITIONAL_CONNECTION_DURATION)
+        self.DEFAULT_TIME_RANGE = float(DEFAULT_TIME_RANGE)
+        self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
+        self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
         # --- Additive Pickup Model constants ---------------------------------
         # Structural / RBD sets and NDO range.
         self.NDO_RANGE = NDO_RANGE
@@ -185,6 +211,8 @@ class ConstantsUtils:
         self.FARE_BUCKET_LOWER_FACTOR = FARE_BUCKET_LOWER_FACTOR
         self.FUTURE_TAG_MIN_ENTRIES = FUTURE_TAG_MIN_ENTRIES
         self.TIME_BAND_HOURS = TIME_BAND_HOURS
+        self.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD
+        self.ML_FLAG_COLUMNS = ML_FLAG_COLUMNS
 
 
         self.logger = logging.getLogger()
@@ -301,6 +329,8 @@ class ConstantsUtils:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
             elif parameter_key == FORECAST_ALLOC_NDO_MAX_KEY:
                 self.FORECAST_ALLOC_NDO_MAX = int(parameter_value)
+            elif parameter_key == WADD_FORECAST_NDO_MAX_KEY:
+                self.WADD_FORECAST_NDO_MAX = int(parameter_value)
             # elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
             #     self.PREFETCH_CHUNK_SIZE = json.loads(parameter_value)
             elif parameter_key == PORTFOLIO_SIBLING_BATCH_SIZE_KEY:
@@ -521,6 +551,47 @@ class ConstantsUtils:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
             elif parameter_key == AUTO_BACKSTOP_FORECAST_THRESHOLD_KEY:
                 self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(parameter_value)
+            elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
+                self.EMSR_SIGMA_FACTOR = float(parameter_value)
+            elif parameter_key == PROMO_FARE_RATIO_KEY:
+                self.PROMO_FARE_RATIO = float(parameter_value)
+            elif parameter_key == PROMO_RBD_KEY:
+                self.PROMO_RBD = str(parameter_value)
+            elif parameter_key in (PROMO_FLAG_NG_KEY, 'PROMO_FLAG_NG', 'PromoFlag_NG'):
+                self.PROMO_FLAG_NG = int(parameter_value)
+                self.PromoFlag_NG = self.PROMO_FLAG_NG
+            elif parameter_key in (PROMO_RBD_NG_KEY, 'PROMO_RBD_NG', 'PromoRBD_NG'):
+                self.PROMO_RBD_NG = str(parameter_value)
+                self.PromoRBD_NG = self.PROMO_RBD_NG
+            elif parameter_key in (PROMO_FIRST_RBD_NG_KEY, 'PROMO_FIRST_RBD_NG', 'PromoFirstRBD_NG', PROMO_FIRST_RBD_KEY):
+                self.PROMO_FIRST_RBD_NG = float(parameter_value)
+                self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+            elif parameter_key in (PROMO_RATIO_NG_KEY, 'PROMO_RATIO_NG', 'PromoRatio_NG'):
+                self.PROMO_RATIO_NG = float(parameter_value)
+                self.PromoRatio_NG = self.PROMO_RATIO_NG
+            elif parameter_key in (DEFAULT_PMIN_THRESHOLD_FACTOR_NG_KEY, PMIN_THRESHOLD_FACTOR_NG_KEY, 'PMIN_THRESHOLD_FACTOR_NG', 'pmin_threshold_factor_NG'):
+                self.PMIN_THRESHOLD_FACTOR_NG = float(parameter_value)
+                self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+            elif parameter_key in (DEFAULT_FIRST_RBD_SEATS_KEY, 'DEFAULT_FIRST_RBD_SEATS', 'FIRST_RBD_SEATS', 'first_rbd_alloc', 'FirstRBDAlloc'):
+                self.DEFAULT_FIRST_RBD_SEATS = float(parameter_value)
+                self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+                self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+            elif parameter_key in (DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', 'additional_connection_duration_NG', 'additional_connection_duration'):
+                self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(parameter_value)
+            elif parameter_key in (DEFAULT_TIME_RANGE_KEY, 'DEFAULT_TIME_RANGE', 'time_range', 'TimeRange'):
+                self.DEFAULT_TIME_RANGE = float(parameter_value)
+            elif parameter_key in (DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY, 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU', 'forecast_threshold_promo_au'):
+                self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(parameter_value)
+            elif parameter_key in (DEFAULT_STANDARD_DEVIATION_FACTOR_KEY, 'DEFAULT_STANDARD_DEVIATION_FACTOR'):
+                self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_PROMO_FARE_FACTOR_KEY, 'DEFAULT_PROMO_FARE_FACTOR'):
+                self.DEFAULT_PROMO_FARE_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_COVERAGE_PARAMETER_KEY, 'DEFAULT_COVERAGE_PARAMETER'):
+                self.DEFAULT_COVERAGE_PARAMETER = float(parameter_value)
+            elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
+                self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
+            elif parameter_key == BUY_UP_FACTOR_KEY:
+                self.BUY_UP_FACTOR = float(parameter_value)
             elif parameter_key == PREDICTION_HORIZON_DAYS_KEY:
                 self.PREDICTION_HORIZON_DAYS = int(parameter_value)
             elif parameter_key == MIN_FLIGHT_MATCHES_KEY:
@@ -543,6 +614,8 @@ class ConstantsUtils:
                 self.FUTURE_TAG_MIN_ENTRIES = int(parameter_value)
             elif parameter_key == TIME_BAND_HOURS_KEY:
                 self.TIME_BAND_HOURS = int(parameter_value)
+            elif parameter_key == ML_FLAG_COLUMNS_KEY:
+                self.ML_FLAG_COLUMNS = int(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

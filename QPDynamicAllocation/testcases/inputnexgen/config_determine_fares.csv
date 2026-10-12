@@ -1,0 +1,13 @@
+id,conditions,B2BValue,B2CValue
+1,"{""start_time"":""00:00"",""end_time"":""10:00"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A
+2,"{""start_time"":""10:01"",""end_time"":""23:59"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A
+3,"{""start_time"":""00:00"",""end_time"":""10:00"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+4,"{""start_time"":""10:01"",""end_time"":""23:59"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+5,"{""start_time"":""00:00"",""end_time"":""10:00"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A
+6,"{""start_time"":""10:01"",""end_time"":""23:59"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A
+7,"{""start_time"":""00:00"",""end_time"":""10:00"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+8,"{""start_time"":""10:01"",""end_time"":""23:59"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+9,"{""ndo_band"":""0"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A
+10,"{""ndo_band"":""0"",""start_of_day_dlf_band"":""3,4,5,6"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+11,"{""ndo_band"":""0"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""0,1,2""}",B,B
+12,"{""ndo_band"":""0"",""start_of_day_dlf_band"":""0,1,2"",""end_of_day_dlf_band"":""3,4,5,6""}",C,A

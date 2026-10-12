@@ -255,9 +255,20 @@ class AdditiveMongoHelper:
         self._intl_stations = stations
         return stations
 
-    def apply_currency_conversion(self, fares_df):
+    def apply_currency_conversion(self, fares_df, fare_col='TOTAL'):
         """
-        Convert TOTAL to INR for fares whose SECTOR origin is international.
+        Convert `fare_col` from an international sector's LOCAL currency to INR.
+
+        IMPORTANT — call this AFTER the airline-component conversion, not before.
+        For an international sector BOTH the QP fare AND the international tax
+        master (ASF/PSF/UDF/taxes/GST) are denominated in the origin's local
+        currency, so the airline component
+            (fare_local - taxes_local) / (1 + gst)
+        must be computed while everything is still in local currency. Only the
+        RESULTING airline component is then converted to INR here — converting the
+        fare first would mix an INR fare with local-currency taxes. So the caller
+        passes fare_col='AirlineComponent' (or whichever column holds the
+        already-tax-stripped, still-local value).
 
         A sector's origin is international when SECTOR[:3] is in
         config_station_master (route='I') — e.g. JEDBOM, DOHBOM, BKKBOM. A
@@ -281,12 +292,12 @@ class AdditiveMongoHelper:
         is_intl_origin = origin.isin(intl_stations)
         needs_conversion = is_intl_origin & df['currency'].ne('INR')
 
+        orig_col = f'{fare_col}_LOCAL'
         if not needs_conversion.any():
-            self.logger.info("[Currency] no international-origin fares needing "
-                             "conversion — TOTAL used as-is.")
-            df['TOTAL_ORIGINAL'] = df['TOTAL']
-            df['ConversionRate'] = 1.0
-            return df.drop(columns=['ConversionRate'])
+            self.logger.info(f"[Currency] no international-origin fares needing "
+                             f"conversion — {fare_col} used as-is.")
+            df[orig_col] = df[fare_col]
+            return df
 
         needed_currencies = df.loc[needs_conversion, 'currency'].unique().tolist()
         if self.dw_helper is not None:
@@ -307,19 +318,20 @@ class AdditiveMongoHelper:
             self.logger.warning(
                 f"[Currency] no ->INR rate for {int(no_rate.sum())} fare row(s) "
                 f"({len(affected)} distinct sector/currency pair(s), e.g. "
-                f"{affected[:10]}); leaving TOTAL unconverted for these rows."
+                f"{affected[:10]}); leaving {fare_col} unconverted for these rows."
             )
-            df.loc[no_rate, 'ConversionRate'] = 1.0   # leave TOTAL as-is (fallback)
+            df.loc[no_rate, 'ConversionRate'] = 1.0   # leave value as-is (fallback)
 
         converted_mask = needs_conversion & (~no_rate)
         self.logger.info(
-            f"[Currency] converting {int(converted_mask.sum())} fare row(s) across "
-            f"{df.loc[converted_mask, 'SECTOR'].nunique()} international sector(s) "
-            f"to INR (currencies: {sorted(df.loc[converted_mask, 'currency'].unique())})."
+            f"[Currency] converting {fare_col} for {int(converted_mask.sum())} fare "
+            f"row(s) across {df.loc[converted_mask, 'SECTOR'].nunique()} international "
+            f"sector(s) to INR (currencies: "
+            f"{sorted(df.loc[converted_mask, 'currency'].unique())})."
         )
 
-        df['TOTAL_ORIGINAL'] = df['TOTAL']
-        df['TOTAL'] = df['TOTAL'] * df['ConversionRate']
+        df[orig_col] = df[fare_col]
+        df[fare_col] = df[fare_col] * df['ConversionRate']
         return df.drop(columns=['ConversionRate'])
 
     # =========================================================================

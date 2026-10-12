@@ -62,6 +62,7 @@ class Schema:
         self.load_generic_collection("salesinv_rbd_distribution", "salesinv_rbd_distribution.csv")
         self.load_generic_collection("distress_calendar", "distress_calendar.csv")
         self.load_generic_collection("forecast_results", "forecast_results.csv")
+        self.load_generic_collection("forecast_results_WADD", "forecast_results_WADD.csv")
         self.load_generic_collection("group_potential_seats", "group_potential_seats.csv")
         self.load_generic_collection("auto_b2b_factor", "auto_b2b_factor.csv")
         self.load_generic_collection("forecast_bands", "forecast_bands.csv")
@@ -92,7 +93,9 @@ class Schema:
 
     def load_generic_collection(self, collectionName, dataFile, use_dw=False):
         """Load a CSV file into a MongoDB Collection"""
-        rawdata = pd.read_csv(f"{sys.path[0]}/testcases/input/" + dataFile)
+        import os
+        csv_path = os.path.join(os.path.dirname(__file__), "testcases", "input", dataFile)
+        rawdata = pd.read_csv(csv_path)
         
         if collectionName in ["market_fares_ag", "market_fares_rg"]:
             # Convert departure_date to full datetime (MongoDB compatible)
