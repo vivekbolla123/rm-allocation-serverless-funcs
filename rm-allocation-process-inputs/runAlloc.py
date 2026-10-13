@@ -1745,7 +1745,9 @@ class DynAlloc:
 						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
 							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
 							if daily_lf is not None:
-								ng_summary['NG_LF_Forecast'] = daily_lf
+								if 0.0 < daily_lf <= 1.0:
+									daily_lf = daily_lf * 100.0
+								ng_summary['NG_LF_Forecast'] = round(daily_lf, 4)
 						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
 							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
 							if daily_af is not None:
@@ -1985,6 +1987,21 @@ class DynAlloc:
 					# Compute NextGen AU mapping for B2C RBDs regardless of nextgen_flag
 					if not ng_opt_df.empty:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
+						b2c_const_val = (
+							getattr(self.constantsUtils, 'QP_B2C_RBD_VALUES', '')
+							or getattr(self.constantsUtils, 'B2C_RBD_VALUES', '')
+							or globals().get('QP_B2C_RBD_VALUES', '')
+							or globals().get('B2C_RBD_VALUES', '')
+						)
+						if b2c_const_val:
+							b2c_rbd_set.update([r.strip() for r in str(b2c_const_val).split(',') if r.strip()])
+
+						non_b2c_rbds = set()
+						for attr_name in ['B2B_RBD_VALUES', 'GROUP_RBD_VALUES', 'DISTRESS_RBD_VALUES', 'TBF_RBD', 'CUG_RBD']:
+							val = getattr(self.constantsUtils, attr_name, None) or globals().get(attr_name, None)
+							if val:
+								non_b2c_rbds.update([r.strip() for r in str(val).split(',') if r.strip()])
+
 						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
 						filed_51_au_map = ng_summary.get('filed_51_au_mapping') or {}
 
@@ -2007,8 +2024,14 @@ class DynAlloc:
 							if not cos:
 								continue
 
-							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
-							is_b2c = (c_type == 'B2C') or (cos in b2c_rbd_set)
+							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF, Distress) are excluded
+							is_non_b2c = (c_type and str(c_type).upper() in ['B2B', 'GROUP', 'DISTRESS', 'CUG', 'TBF']) or (cos in non_b2c_rbds)
+							if promo_flag == 1 and cos == promo_rbd:
+								is_b2c = True
+								is_non_b2c = False
+							else:
+								is_b2c = ((c_type == 'B2C') or (cos in b2c_rbd_set)) and not is_non_b2c
+
 							if not is_b2c:
 								continue
 
