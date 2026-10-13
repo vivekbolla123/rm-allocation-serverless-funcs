@@ -1,8 +1,8 @@
 #! /bin/bash
 set -e
 #Variable definition section
-Lmd_Func="rm-allocation-serverless-funcs_rm-allocation-prefetch-inputs"
-ECR_Repo="$Lmd_Func" #If ECR repo name and Lambda function name are both same
+Lmd_Func="prod-rm-lambda-rm-allocation-prefetch-inputs"
+ECR_Repo="prod-rm-ecr-rm-allocation-prefetch-inputs"
 ECR_Domain="471112573018.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="rm-allocation-prefetch-inputs-image"
 ECR_Img_Tag="latest"
