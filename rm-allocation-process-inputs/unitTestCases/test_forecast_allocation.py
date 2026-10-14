@@ -19,10 +19,12 @@ class TestFormulaEvaluator(unittest.TestCase):
         self.assertAlmostEqual(res, 4264.0, places=2)
 
     def test_band_4_increasing_without_booking(self):
-        # Upsell clamped to 1.0 -> Max(4000, 4100*1.0, 4200) = 4200
+        # Booking-in-last-hour upsell constraint has been removed (Change Notes – 3):
+        # LSF*1.04 now applies regardless of booking velocity.
+        # Max(4000, 4100*1.04=4264, 4200) = 4264
         vars_dict = {"Profile": 4000.0, "LSF": 4100.0, "Strategy": 4200.0}
         res = self.evaluator.evaluate("Max(Profile, LSF*1.04, Strategy)", vars_dict, has_booking_in_last_hour=False)
-        self.assertAlmostEqual(res, 4200.0, places=2)
+        self.assertAlmostEqual(res, 4264.0, places=2)
 
     def test_band_4_stable(self):
         # Max(LSF*1.02, Average(Highest, Middle))
@@ -37,9 +39,10 @@ class TestFormulaEvaluator(unittest.TestCase):
         res2 = self.evaluator.evaluate("Max(LSF*1.02, Average(Highest, Middle))", vars_dict2, has_booking_in_last_hour=True)
         self.assertAlmostEqual(res2, 5100.0, places=2)
 
-        # Without booking: 5000*1.0 = 5000. Max(5000, 4500) = 5000.
+        # Upsell constraint removed: 5000*1.02 = 5100 applies even without bookings.
+        # Max(5100, 4500) = 5100.
         res3 = self.evaluator.evaluate("Max(LSF*1.02, Average(Highest, Middle))", vars_dict2, has_booking_in_last_hour=False)
-        self.assertAlmostEqual(res3, 5000.0, places=2)
+        self.assertAlmostEqual(res3, 5100.0, places=2)
 
     def test_band_4_decreasing(self):
         # Min(LSF, 80% x LSF + 20% x Middle Fare)
@@ -128,6 +131,34 @@ class TestFormulaEvaluator(unittest.TestCase):
         res = self.evaluator.evaluate("Min(Strategy fare, profile fare, LSF*0.95)", vars_dict)
         self.assertAlmostEqual(res, 3990.0, places=2)
 
+    def test_interpolate_1(self):
+        # Interpolate_1 = MaxOwn + ((Strategy - MaxOwn)/0.85) * (ImputedForecast/100 + 0.85)
+        # MaxOwn=4000, Strategy=5000, ImputedForecast=86 -> 0.86
+        # 4000 + ((1000)/0.85) * (0.86 + 0.85) = 4000 + 1176.4706 * 1.71 = 4000 + 2011.76 = 6011.76
+        vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 86.0}
+        res = self.evaluator.evaluate("Interpolate_1(MaxOwn, Strategy)", vars_dict)
+        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.85) * (0.86 + 0.85), places=2)
+
+    def test_interpolate_2(self):
+        # Interpolate_2 = MaxOwn + ((Strategy - MaxOwn)/0.80) * (ImputedForecast/100 + 0.80)
+        # MaxOwn=4000, Strategy=5000, ImputedForecast=82 -> 0.82
+        vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 82.0}
+        res = self.evaluator.evaluate("Interpolate_2(MaxOwn, Strategy)", vars_dict)
+        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.80) * (0.82 + 0.80), places=2)
+
+    def test_interpolate_accepts_fraction_imputed_forecast(self):
+        # ImputedForecast already provided as a fraction (0.86) must behave identically.
+        vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 0.86}
+        res = self.evaluator.evaluate("Interpolate_1(MaxOwn, Strategy)", vars_dict)
+        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.85) * (0.86 + 0.85), places=2)
+
+    def test_maxown_and_leading_scalar_multiplier(self):
+        # 1.05 * Max(LSF, Average(Highest, Middle))
+        # LSF=4000, Highest=5000, Middle=4000 -> Average=4500 -> Max=4500 -> *1.05 = 4725
+        vars_dict = {"LSF": 4000.0, "Highest": 5000.0, "Middle": 4000.0}
+        res = self.evaluator.evaluate("1.05*Max(LSF, Average(Highest, Middle))", vars_dict)
+        self.assertAlmostEqual(res, 4725.0, places=2)
+
     def test_missing_profile_handled_gracefully(self):
         # Max(Profile, LSF*1.04, Strategy) where Profile is None
         vars_dict = {"Profile": None, "LSF": 4000.0, "Strategy": 4500.0}
@@ -215,10 +246,18 @@ class TestForecastAllocationLogic(unittest.TestCase):
         )
 
     def test_resolve_bands(self):
-        self.assertEqual(self.logic.resolve_band(98.5), 4)
-        self.assertEqual(self.logic.resolve_band(95.0), 3)
-        self.assertEqual(self.logic.resolve_band(92.0), 3)
-        self.assertEqual(self.logic.resolve_band(85.0), 2)
+        # Seven bands: 7:>100, 6:95-100, 5:92-95, 4:88-92, 3:85-88, 2:80-85, 1:<80
+        self.assertEqual(self.logic.resolve_band(101.0), 7)
+        self.assertEqual(self.logic.resolve_band(98.5), 6)
+        self.assertEqual(self.logic.resolve_band(95.0), 6)
+        self.assertEqual(self.logic.resolve_band(93.0), 5)
+        self.assertEqual(self.logic.resolve_band(92.0), 5)
+        self.assertEqual(self.logic.resolve_band(90.0), 4)
+        self.assertEqual(self.logic.resolve_band(88.0), 4)
+        self.assertEqual(self.logic.resolve_band(86.0), 3)
+        self.assertEqual(self.logic.resolve_band(85.0), 3)
+        self.assertEqual(self.logic.resolve_band(82.0), 2)
+        self.assertEqual(self.logic.resolve_band(80.0), 2)
         self.assertEqual(self.logic.resolve_band(75.0), 1)
 
     def test_resolve_trend_increasing(self):
@@ -355,18 +394,19 @@ class TestForecastAllocationLogic(unittest.TestCase):
         self.assertTrue(is_fallback)
         self.assertAlmostEqual(lsf, 4300.0)
 
-    def test_calculate_anchor_end_to_end_band_4_increasing(self):
+    def test_calculate_anchor_end_to_end_band_6_increasing(self):
         history = [
             {"run_count": 1, "actual_imp_forecast": 90.0, "selling_fare": 4200.0},
             {"run_count": 2, "actual_imp_forecast": 92.0, "selling_fare": 4300.0},
             {"run_count": 3, "actual_imp_forecast": 94.0, "selling_fare": 4400.0},
             {"run_count": 4, "actual_imp_forecast": 95.0, "selling_fare": 4500.0},
         ]
-        # imp_forecast = 98.0 (>95% -> Band 4)
+        # imp_forecast = 98.0 (95-100% -> Band 6)
         # Trend: 98.0 - 90.0 = +8.0 -> Increasing
-        # BookingsInHour = 1 -> has_bookings True -> LSF*1.04 applies
-        # Strategy=4000, Profile=3800, lastSoldFare=4500
-        # Formula: Max(Profile, LSF*1.04, Strategy) = Max(3800, 4500*1.04=4680, 4000) = 4680
+        # Strategy=4000, Profile=3800, last3=4500, last7=4300 -> LSF = max(4500, 4300) = 4500
+        # Potential fares: [4000, 3800, 4500] -> Highest=4500, Middle=4000
+        # Formula (Band 6 Increasing): 1.05 * Max(LSF, Average(Highest, Middle))
+        #   Average(4500, 4000) = 4250 ; Max(4500, 4250) = 4500 ; *1.05 = 4725
         result = self.logic.calculate_anchor(
             strategyFare=4000.0,
             profileFare=3800.0,
@@ -374,51 +414,93 @@ class TestForecastAllocationLogic(unittest.TestCase):
             imp_forecast=98.0,
             BookingsInHour=1,
             history=history,
+            last3Fare=4500.0,
+            last7Fare=4300.0,
         )
-        self.assertEqual(result["band"], 4)
+        self.assertEqual(result["band"], 6)
         self.assertEqual(result["trend"], "Increasing")
-        self.assertAlmostEqual(result["anchor_fare"], 4680.0, places=2)
-        self.assertIn("AllocationY_Band4_Increasing_UpsellY", result["how_determined"])
-        self.assertIn("Max(Profile,LSF*1.04,Strategy)", result["how_determined"])
+        self.assertAlmostEqual(result["lsf"], 4500.0, places=2)
+        self.assertAlmostEqual(result["anchor_fare"], 4725.0, places=2)
+        self.assertIn("AllocationY_Band6_Increasing_UpsellY", result["how_determined"])
+        self.assertIn("1.05*Max(LSF,Average(Highest,Middle))", result["how_determined"])
 
-    def test_all_12_grid_combinations(self):
-        """Verify each of the 12 combinations in Table 1.1 with explicit inputs."""
+    def test_calculate_anchor_max_own_capped_below_strategy(self):
+        # Max Own = Max(Profile, Last 3), capped below Strategy.
+        # Profile=4600, Last3=4400, Strategy=4500 -> Max(4600,4400)=4600 capped to 4500.
+        history = [{"run_count": i, "actual_imp_forecast": 83.0} for i in range(1, 5)]
+        result = self.logic.calculate_anchor(
+            strategyFare=4500.0,
+            profileFare=4600.0,
+            lastSoldFare=4400.0,
+            imp_forecast=83.0,   # Band 2 -> Interpolate_2(MaxOwn, Strategy)
+            BookingsInHour=0,
+            history=history,
+            last3Fare=4400.0,
+            last7Fare=4300.0,
+        )
+        self.assertEqual(result["band"], 2)
+        self.assertAlmostEqual(result["max_own_fare"], 4500.0, places=2)
+        # MaxOwn == Strategy -> Interpolate_2 collapses to Strategy regardless of divisor.
+        self.assertAlmostEqual(result["anchor_fare"], 4500.0, places=2)
+        self.assertIn("AllocationY_Band2_", result["how_determined"])
+        self.assertIn("Interpolate_2(MaxOwn,Strategy)", result["how_determined"])
+
+    def test_all_21_grid_combinations(self):
+        """Verify each of the 21 combinations in the seven-band grid with explicit inputs."""
         # Baseline fares:
-        # Strategy = 4000, Profile = 4200, LSF = 4100
-        # Potential fares: [4000, 4100, 4200]
-        # Highest = 4200, Middle = 4100, Lowest = 4000
+        #   Strategy = 4000, Profile = 4200, Last3 = 4100, Last7 = 4050
+        #   LSF = Max(Last3, Last7) = 4100
+        #   Potential fares: [4000, 4200, 4100] -> Highest = 4200, Middle = 4100, Lowest = 4000
+        #   MaxOwn = Max(Profile, Last3) = 4200, capped below Strategy (4000) -> 4000
+        STRAT, PROF, LAST3, LAST7 = 4000.0, 4200.0, 4100.0, 4050.0
+        LSF = max(LAST3, LAST7)          # 4100
+        HIGH, MID, LOW = 4200.0, 4100.0, 4000.0
+        MAXOWN = min(max(PROF, LAST3), STRAT)  # 4000
+
+        def interp(divisor, imp):
+            return MAXOWN + ((STRAT - MAXOWN) / divisor) * (imp / 100.0 + divisor)
+
+        # Imputed forecast used per band so resolve_band would also agree (band_override still set).
+        band_imp = {7: 101.0, 6: 97.0, 5: 93.0, 4: 90.0, 3: 86.0, 2: 82.0, 1: 75.0}
+
         test_cases = [
-            # (band, trend, bookings, expected_formula_math)
+            # Band 7
+            (7, "Increasing", 1.05 * max(LSF, (HIGH + MID) / 2)),
+            (7, "Stable", max(LSF, (HIGH + MID) / 2)),
+            (7, "Decreasing", max(LSF, (HIGH + MID) / 2)),
+            # Band 6
+            (6, "Increasing", 1.05 * max(LSF, (HIGH + MID) / 2)),
+            (6, "Stable", max(LSF, (HIGH + MID) / 2)),
+            (6, "Decreasing", max(LSF, (HIGH + MID) / 2)),
+            # Band 5
+            (5, "Increasing", max(LSF, 0.70 * HIGH + 0.30 * MID)),
+            (5, "Stable", max(LSF, 0.30 * HIGH + 0.70 * MID)),
+            (5, "Decreasing", min(LSF, 0.30 * HIGH + 0.70 * MID)),
             # Band 4
-            (4, "Increasing", 1, max(4200, 4100 * 1.04, 4000)),  # Max(Profile, LSF*1.04, Strategy) = 4264
-            (4, "Increasing", 0, max(4200, 4100 * 1.0, 4000)),   # Max(Profile, LSF*1.0, Strategy) = 4200
-            (4, "Stable", 1, max(4100 * 1.02, (4200 + 4100) / 2)), # Max(4182, 4150) = 4182
-            (4, "Stable", 0, max(4100 * 1.0, (4200 + 4100) / 2)),  # Max(4100, 4150) = 4150
-            (4, "Decreasing", 0, min(4100, 0.80 * 4100 + 0.20 * 4100)), # Min(4100, 4100) = 4100
-            # Band 3
-            (3, "Increasing", 0, max(4100, 0.70 * 4200 + 0.30 * 4100)), # Max(4100, 2940 + 1230 = 4170) = 4170
-            (3, "Stable", 0, max(4100, 0.30 * 4200 + 0.70 * 4100)),     # Max(4100, 1260 + 2870 = 4130) = 4130
-            (3, "Decreasing", 0, min(4100, 0.60 * 4100 + 0.40 * 4100)), # Min(4100, 4100) = 4100
-            # Band 2
-            (2, "Increasing", 0, max(4100, 0.70 * 4100 + 0.30 * 4200)), # Max(4100, 2870 + 1260 = 4130) = 4130
-            (2, "Stable", 0, min(4100, 0.80 * 4100 + 0.20 * 4000)),     # Min(4100, 3280 + 800 = 4080) = 4080
-            (2, "Decreasing", 0, min(0.95 * 4100, 0.60 * 4100 + 0.40 * 4000)), # Min(3895, 2460 + 1600 = 4060) = 3895
-            # Band 1
-            (1, "Increasing", 0, min(4000, 4100)),                       # Min(Strategy, LSF) = 4000
-            (1, "Stable", 0, min(4000, 4100 * 0.98)),                   # Min(4000, 4018) = 4000
-            (1, "Decreasing", 0, min(4000, 4200, 4100 * 0.95)),         # Min(4000, 4200, 3895) = 3895
+            (4, "Increasing", max(LSF, 0.70 * LSF + 0.30 * HIGH)),
+            (4, "Stable", min(LSF, 0.30 * HIGH + 0.70 * MID)),
+            (4, "Decreasing", min(LSF, 0.60 * LSF + 0.40 * STRAT)),
+            # Band 3 -> Interpolate_1(MaxOwn, Strategy); MaxOwn==Strategy so collapses to Strategy
+            (3, "Increasing", interp(0.85, band_imp[3])),
+            (3, "Stable", interp(0.85, band_imp[3])),
+            (3, "Decreasing", interp(0.85, band_imp[3])),
+            # Band 2 -> Interpolate_2(MaxOwn, Strategy)
+            (2, "Increasing", interp(0.80, band_imp[2])),
+            (2, "Stable", interp(0.80, band_imp[2])),
+            (2, "Decreasing", interp(0.80, band_imp[2])),
+            # Band 1 -> Min(Strategy, MaxOwn)
+            (1, "Increasing", min(STRAT, MAXOWN)),
+            (1, "Stable", min(STRAT, MAXOWN)),
+            (1, "Decreasing", min(STRAT, MAXOWN)),
         ]
 
-        for band, trend, bookings, expected_val in test_cases:
-            # Map trend to forecast diff
+        for band, trend, expected_val in test_cases:
+            current_fcst = band_imp[band]
             if trend == "Increasing":
-                current_fcst = 96.0 if band == 4 else (92.0 if band == 3 else (85.0 if band == 2 else 75.0))
                 hist_fcst = current_fcst - 5.0
             elif trend == "Decreasing":
-                current_fcst = 96.0 if band == 4 else (92.0 if band == 3 else (85.0 if band == 2 else 75.0))
                 hist_fcst = current_fcst + 5.0
             else:
-                current_fcst = 96.0 if band == 4 else (92.0 if band == 3 else (85.0 if band == 2 else 75.0))
                 hist_fcst = current_fcst
 
             history = [
@@ -429,18 +511,20 @@ class TestForecastAllocationLogic(unittest.TestCase):
             ]
 
             res = self.logic.calculate_anchor(
-                strategyFare=4000.0,
-                profileFare=4200.0,
-                lastSoldFare=4100.0,
+                strategyFare=STRAT,
+                profileFare=PROF,
+                lastSoldFare=LAST3,
                 imp_forecast=current_fcst,
-                BookingsInHour=bookings,
+                BookingsInHour=0,
                 history=history,
                 band_override=band,
+                last3Fare=LAST3,
+                last7Fare=LAST7,
             )
             self.assertEqual(res["band"], band)
             self.assertEqual(res["trend"], trend)
             self.assertAlmostEqual(res["anchor_fare"], round(expected_val, 2), places=2,
-                                   msg=f"Failed for Band {band} {trend} (bookings={bookings})")
+                                   msg=f"Failed for Band {band} {trend}")
 
     def test_custom_db_grid_override(self):
         """Verify that custom formulas loaded from DB override default formulas."""
@@ -502,7 +586,7 @@ class TestDetermineRBDIntegration(unittest.TestCase):
             self.redishelper,
         )
 
-    def test_forecast_active_band_4_routes_correctly(self):
+    def test_forecast_active_band_6_routes_correctly(self):
         curr_params = MagicMock()
         curr_params.origin = "BOM"
         curr_params.destin = "DEL"
@@ -567,9 +651,11 @@ class TestDetermineRBDIntegration(unittest.TestCase):
         open_result = output[0]
         final_anchor_fare = float(open_result['anchorFare'][0])
         howDetermined = str(open_result['FareResult'][0])
-        # Band 4 Stable with BookingsInHour=1: Max(4500*1.02=4590, (4500+4000)/2=4250) = 4590.0
-        self.assertAlmostEqual(final_anchor_fare, 4590.0, places=1)
-        self.assertIn("F_4_4_AllocationY_Band4_Stable_UpsellY", howDetermined)
+        # imp_forecast 98 -> Band 6 (95-100%). No history -> Stable.
+        # LSF = Max(Last3=4500, Last7=NA) = 4500; Highest=4500, Middle=4000.
+        # Band 6 Stable: Max(LSF, Average(Highest, Middle)) = Max(4500, 4250) = 4500.0
+        self.assertAlmostEqual(final_anchor_fare, 4500.0, places=1)
+        self.assertIn("F_6_4_AllocationY_Band6_Stable_UpsellY", howDetermined)
 
     def test_forecast_active_missing_imp_forecast_falls_back_to_variance(self):
         curr_params = MagicMock()

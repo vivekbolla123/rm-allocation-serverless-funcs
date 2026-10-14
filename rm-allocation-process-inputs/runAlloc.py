@@ -3017,12 +3017,16 @@ class DynAlloc:
 		total_fares = sum(Decimal(str(fare['Fare'])) for fare in fares)
 		return float(total_fares / len(fares))
 
-	def calculate_average(self,fares):
-		
+	def calculate_average(self, fares, window_hours=None):
+		# Window within which fares are considered "recent". Defaults to the global
+		# LAST_SOLD_FARE_THRESHOLD; forward NDOs (45+) pass a wider configurable window.
+		if window_hours is None:
+			window_hours = self.constantsUtils.LAST_SOLD_FARE_THRESHOLD
+
 		current_time = datetime.utcnow()
 		recent_fares = [
 			fare for fare in fares 
-			if (current_time - datetime.fromisoformat(fare['BookingUTC'].replace('Z', ''))) <= timedelta(hours=self.constantsUtils.LAST_SOLD_FARE_THRESHOLD)
+			if (current_time - datetime.fromisoformat(fare['BookingUTC'].replace('Z', ''))) <= timedelta(hours=window_hours)
 		]
 		if len(recent_fares) < 3:
 			return CONST_NA
@@ -3034,29 +3038,31 @@ class DynAlloc:
 		# Parse the JSON string if it's not already a dictionary
 		if isinstance(fares_manifest, str):
 			fares_manifest = json.loads(fares_manifest)
-			
+
+		# For forward NDOs (45+) the last-3 fare is computed from the last 3 PNRs
+		# (booking-level, deduped by BookingID) using a wider, configurable window
+		# (LAST_SOLD_FARE_THRESHOLD_NDO45, default 96h) rather than the last 3 PAX.
 		if ndo >= 45:
-			all_fares = fares_manifest.get('allfares_pax', [])
-			b2b_fares = fares_manifest.get('b2bfares_pax', [])
-			b2c_fares = fares_manifest.get('b2cfares_pax', [])
-			
-			# Fallback if pax variants don't exist yet
-			if not all_fares and not b2b_fares and not b2c_fares:
-				all_fares = fares_manifest.get('allfares', [])
-				b2b_fares = fares_manifest.get('b2bfares', [])
-				b2c_fares = fares_manifest.get('b2cfares', [])
+			all_fares = fares_manifest.get('allfares', [])
+			b2b_fares = fares_manifest.get('b2bfares', [])
+			b2c_fares = fares_manifest.get('b2cfares', [])
+			last3_window = getattr(
+				self.constantsUtils, 'LAST_SOLD_FARE_THRESHOLD_NDO45',
+				self.constantsUtils.LAST_SOLD_FARE_THRESHOLD,
+			)
 		else:
 			all_fares = fares_manifest.get('allfares', [])
 			b2b_fares = fares_manifest.get('b2bfares', [])
 			b2c_fares = fares_manifest.get('b2cfares', [])
+			last3_window = self.constantsUtils.LAST_SOLD_FARE_THRESHOLD
 		
 		# Calculate last_seven_avg (always with all available fares)
 		last_seven_avg = self.calculate_last_seven_avg(all_fares)
 		
 		# Calculate lastsoldb2b and lastsoldb2c (require at least 3 fares)
 		
-		lastsoldb2b = self.calculate_average(b2b_fares)
-		lastsoldb2c = self.calculate_average(b2c_fares)
+		lastsoldb2b = self.calculate_average(b2b_fares, window_hours=last3_window)
+		lastsoldb2c = self.calculate_average(b2c_fares, window_hours=last3_window)
 		
 		return last_seven_avg, lastsoldb2b, lastsoldb2c
 
@@ -4701,6 +4707,18 @@ class DynAlloc:
 		summary_row.upsell = anchor_result.upsell
 		summary_row.anchorFareBeforeTolerance = getattr(anchor_result, 'anchorFareBeforeTolerance', CONST_NA)
 		summary_row.toleranceValue = anchor_result.toleranceValue
+
+		# Forecast Allocation diagnostics (Change Notes – 3) for analysis.
+		summary_row.forecastBand = getattr(anchor_result, 'forecastBand', CONST_NA)
+		summary_row.forecastTrend = getattr(anchor_result, 'forecastTrend', CONST_NA)
+		summary_row.forecastLSF = getattr(anchor_result, 'forecastLSF', CONST_NA)
+		summary_row.forecastLast3Fare = getattr(anchor_result, 'forecastLast3Fare', CONST_NA)
+		summary_row.forecastLast7Fare = getattr(anchor_result, 'forecastLast7Fare', CONST_NA)
+		summary_row.forecastMaxOwnFare = getattr(anchor_result, 'forecastMaxOwnFare', CONST_NA)
+		summary_row.forecastHighestFare = getattr(anchor_result, 'forecastHighestFare', CONST_NA)
+		summary_row.forecastMiddleFare = getattr(anchor_result, 'forecastMiddleFare', CONST_NA)
+		summary_row.forecastLowestFare = getattr(anchor_result, 'forecastLowestFare', CONST_NA)
+		summary_row.forecastFormula = getattr(anchor_result, 'forecastFormula', CONST_NA)
 
 	# ------------------------------------------------------------------
 	# Z-scores + Portfolio anchor (R5)
