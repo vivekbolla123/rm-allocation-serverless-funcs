@@ -1983,12 +1983,7 @@ class DynAlloc:
 					# Compute NextGen AU mapping for B2C RBDs regardless of nextgen_flag
 					if not ng_opt_df.empty:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
-						b2c_const_val = (
-							getattr(self.constantsUtils, 'QP_B2C_RBD_VALUES', '')
-							or getattr(self.constantsUtils, 'B2C_RBD_VALUES', '')
-							or globals().get('QP_B2C_RBD_VALUES', '')
-							or globals().get('B2C_RBD_VALUES', '')
-						)
+						b2c_const_val = getattr(self.constantsUtils, 'QP_B2C_RBD_VALUES', '') or globals().get('QP_B2C_RBD_VALUES', '')
 						if b2c_const_val:
 							b2c_rbd_set.update([r.strip() for r in str(b2c_const_val).split(',') if r.strip()])
 

@@ -136,7 +136,7 @@ class ConstantsUtils:
         self.RBD_VALUES = RBD_VALUES
         self.B2B_RBD_VALUES = B2B_RBD_VALUES
         self.B2C_RBD_VALUES = B2C_RBD_VALUES
-        self.QP_B2C_RBD_VALUES = B2C_RBD_VALUES
+        self.QP_B2C_RBD_VALUES = QP_B2C_RBD_VALUES
         self.GROUP_RBD_VALUES = GROUP_RBD_VALUES
         self.DISTRESS_RBD_VALUES = DISTRESS_RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
@@ -411,8 +411,9 @@ class ConstantsUtils:
                 self.RBD_VALUES = parameter_value
             elif parameter_key == B2B_RBD_VALUES_KEY:
                 self.B2B_RBD_VALUES = parameter_value
-            elif parameter_key in [B2C_RBD_VALUES_KEY, 'QP_B2C_RBD_VALUES']:
+            elif parameter_key == B2C_RBD_VALUES_KEY:
                 self.B2C_RBD_VALUES = parameter_value
+            elif parameter_key == QP_B2C_RBD_VALUES_KEY:
                 self.QP_B2C_RBD_VALUES = parameter_value
             elif parameter_key == GROUP_RBD_VALUES_KEY:
                 self.GROUP_RBD_VALUES = parameter_value
