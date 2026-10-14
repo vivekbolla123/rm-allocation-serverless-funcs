@@ -169,6 +169,11 @@ class defaultMarketlist:
             # Build and upload audit logs for new records (mirrors AuditHelper.buildAuditLogs in Java)
             self._build_and_upload_audit_logs(domestic_df, "SYS")
 
+            # Push the newly-added default-ML flights to a dedicated collection and
+            # trigger an adhoc allocation run for them (pattern per equipmentChange.py /
+            # schedule30.py). Non-fatal: failures here must not abort the main job.
+            self._trigger_default_ml_adhoc(domestic_df_to_insert)
+
             start_date_str = startDate.strftime('%Y-%m-%d')
             end_date_str = endDate.strftime('%Y-%m-%d')
             
@@ -849,47 +854,175 @@ class defaultMarketlist:
             self.logger.error(f"Error inserting into {collection_name}: {traceback.format_exc()}")
             raise
 
+    # ─── Default-ML Adhoc Run ────────────────────────────────────────────────
+    #
+    # After new default-ML flights are inserted into market_list, push the same
+    # rows into a dedicated collection (market_list_default) and trigger an adhoc
+    # allocation run via the prefetch-inputs Lambda. Mirrors the mechanism used by
+    # EQTAlloc (equipmentChange.py) and ScheduleThirty (schedule30.py):
+    #   collection replace -> currentVersion upsert -> S3 CSV upload -> Lambda invoke
+
+    DEFAULT_ML_ADHOC_TABLE = "market_list_default"
+
+    def _trigger_default_ml_adhoc(self, new_flights_df):
+        """Push newly-added default-ML flights to market_list_default and kick off
+        an adhoc allocation run. Non-fatal: any failure is logged and swallowed so
+        the primary default-ML job still completes."""
+        try:
+            if new_flights_df is None or new_flights_df.empty:
+                self.logger.info("No new default-ML flights to run as adhoc; skipping adhoc trigger.")
+                return
+
+            run_id = str(uuid.uuid4())
+            self.logger.info(f"Starting Default-ML adhoc run with run_id: {run_id}")
+
+            adhoc_df = self._update_market_list_default(new_flights_df)
+            if adhoc_df is None or adhoc_df.empty:
+                self.logger.info("No records persisted to market_list_default; skipping adhoc trigger.")
+                return
+
+            version_id = str(uuid.uuid4())
+            self.logger.info(f"Generated Default-ML adhoc version ID: {version_id}")
+
+            self._update_current_version(self.DEFAULT_ML_ADHOC_TABLE, version_id)
+            self._upload_adhoc_to_s3(adhoc_df, self.DEFAULT_ML_ADHOC_TABLE, version_id)
+            self._invoke_default_ml_lambda(run_id)
+
+            self.logger.info("Default-ML adhoc run triggered successfully")
+
+        except Exception as e:
+            self.logger.error(f"Failed to trigger Default-ML adhoc run: {str(e)}\n{traceback.format_exc()}")
+
+    def _update_market_list_default(self, new_flights_df):
+        """Replace market_list_default with the newly-added default-ML flights.
+        Returns the DataFrame actually persisted (for S3 upload)."""
+        try:
+            collection = self.db[self.DEFAULT_ML_ADHOC_TABLE]
+
+            adhoc_df = new_flights_df.copy()
+            # FlightNumber stored as numeric in the market list collections.
+            if 'FlightNumber' in adhoc_df.columns:
+                adhoc_df['FlightNumber'] = pd.to_numeric(adhoc_df['FlightNumber'], errors='coerce')
+
+            # Each run replaces the full contents (same semantics as EQT/Thirty).
+            delete_result = collection.delete_many({})
+            self.logger.info(
+                f"Cleared {delete_result.deleted_count} existing records from {self.DEFAULT_ML_ADHOC_TABLE}"
+            )
+
+            records = adhoc_df.to_dict('records')
+            if records:
+                collection.insert_many(records)
+                self.logger.info(f"Inserted {len(records)} records into {self.DEFAULT_ML_ADHOC_TABLE}")
+            return adhoc_df
+
+        except Exception as e:
+            self.logger.error(f"Error updating {self.DEFAULT_ML_ADHOC_TABLE}: {str(e)}\n{traceback.format_exc()}")
+            raise
+
+    def _update_current_version(self, table_name, version_id):
+        """Upsert the currentVersion marker for the given adhoc table."""
+        try:
+            collection = self.db['currentVersion']
+            collection.update_one(
+                {'tableName': table_name},
+                {'$set': {'curr_version': version_id, 'updated_at': datetime.utcnow()}},
+                upsert=True
+            )
+            self.logger.info(f"Updated currentVersion for {table_name}")
+        except Exception as e:
+            self.logger.error(f"Error updating currentVersion for {table_name}: {str(e)}")
+            raise
+
+    def _upload_adhoc_to_s3(self, df, table_name, version_id):
+        """Upload the adhoc market list CSV to S3 (version-prefixed file name)."""
+        try:
+            s3_client = boto3.client('s3')
+            bucket_name = configsettings.S3_BUCKET_NAME
+            s3_folder_path = f"{configsettings.S3_FILE_PATH}rm-admin/{table_name}"
+            file_name = f"{version_id}_{table_name}"
+            s3_file_path = f"{s3_folder_path}/{file_name}"
+
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=s3_file_path,
+                Body=csv_buffer.getvalue()
+            )
+            self.logger.info(f"Uploaded adhoc market list to S3: s3://{bucket_name}/{s3_file_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error uploading adhoc market list to S3: {str(e)}\n{traceback.format_exc()}")
+            return False
+
+    def _invoke_default_ml_lambda(self, run_id):
+        """Invoke the prefetch-inputs Lambda to run the default-ML flights as adhoc."""
+        try:
+            lambda_client = boto3.client('lambda')
+            lambda_function_name = configsettings.PREFETCH_INPUTS_LAMBDA
+
+            payload = {
+                "body": json.dumps({
+                    "run_id": run_id,
+                    "start_interval": 0,
+                    "end_interval": 365,
+                    "run_type": "Default_ML",
+                    "market_list_table_name": self.DEFAULT_ML_ADHOC_TABLE,
+                    "route_type": "direct",
+                    "update_navitaire_method": "api"
+                })
+            }
+
+            response = lambda_client.invoke(
+                FunctionName=lambda_function_name,
+                InvocationType='Event',
+                Payload=json.dumps(payload)
+            )
+
+            status_code = response.get('StatusCode')
+            if status_code == 202:
+                self.logger.info("Default-ML adhoc Lambda invoked successfully (async)")
+                return {"status": "success", "statusCode": 202}
+            else:
+                self.logger.error(f"Default-ML adhoc Lambda invocation failed: status {status_code}")
+                return {"status": "error", "statusCode": status_code}
+
+        except Exception as e:
+            self.logger.error(f"Error invoking Default-ML adhoc Lambda: {str(e)}\n{traceback.format_exc()}")
+            raise
+
     # ─── Audit Column Mapping ───────────────────────────────────────────────
     #
-    # The Java AuditHelper writes Parquet using JavaBean property names (the Java
-    # field names in MarketListEntity/AuditEntity), NOT the MongoDB @Column names.
+    # The Java AuditHelper writes ML audit Parquet using JavaBean property names
+    # (the Java field names in MarketListEntity/AuditEntity), NOT the MongoDB
+    # @Column names. input_audits.py translates those bean names back to the real
+    # market_list field names on read via the single source of truth:
+    #     Constants.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD  (bean -> market_list)
     #
-    # DYNAMIC RULE: Most mismatches are just Java's Introspector.decapitalize —
-    # i.e. first character lowered. The code applies this automatically for any
-    # field starting with an uppercase letter followed by a lowercase letter.
+    # To keep THIS writer's output consistent with that reverse-mapping, we build
+    # the audit rename map by INVERTING the shared constant (market_list -> bean).
+    # This guarantees the default-ML audit Parquet matches the Java AuditHelper
+    # output and the input_audits.py expectations, with no second map to maintain.
     #
-    # EXPLICIT MAP: Only fields where the rename is NOT just first-char-lowercase
-    # (completely different names, abbreviation changes, typo corrections, etc.)
-    # need to be listed here.
+    # DYNAMIC RULE: Any market_list column NOT in the inverted map is passed
+    # through Java's Introspector.decapitalize (first char lowered when the
+    # second char is lowercase) — which reproduces the bean name for all the
+    # regular fields.
     #
-    # ⚠️  IMPORTANT: If adding a new field to MarketListEntity.java where
-    #     @Column(name) differs from the Java field name by MORE than just
-    #     lowering the first character, add it to _AUDIT_RENAME_MAP below.
-    #     Prefer keeping @Column(name) == Java field name for new fields.
-    _AUDIT_RENAME_MAP = {
-        # MongoDB @Column(name)  →  Java field / Parquet column
-        # These have genuine name differences (not just first-char case):
-        'obFare': 'OBFare',                  # ob → OB (uppercase abbreviation)
-        'obSeats': 'OBSeats',                # ob → OB (uppercase abbreviation)
-        'B2BBackstop': 'b2bBackstop',        # B2B → b2b (full prefix lowered)
-        'B2BFactor': 'b2bFactor',            # B2B → b2b
-        'B2BTolerance': 'b2bTolerance',      # B2B → b2b
-        'B2CBackstop': 'b2cBackstop',        # B2C → b2c
-        'B2CTolerance': 'b2cTolerance',      # B2C → b2c
-        'Outbound_Stop': 'b2bOutbound_Stop', # completely different name
-        'CarrExlusionB2B': 'carrExclusionB2B',  # typo fix: Exlusion → Exclusion
-        'CarrExlusionB2C': 'carrExclusionB2C',  # typo fix: Exlusion → Exclusion
-        'CurveID': 'curveId',                # ID → Id (abbreviation case change)
-        'TimeWindowEnd': 'endTime',          # completely different name
-        'TimeWindowStart': 'startTime',      # completely different name
-        'FirstRBDAlloc': 'firstAllocation',  # completely different name
-        'OtherRBDAlloc': 'otherAllocation',  # completely different name
-        'FlightNumber': 'flightNo',          # completely different name
-        'TBFEnhFlag': 'tbfEnhFlag',          # TBF → tbf (full prefix lowered)
-    }
+    # ⚠️  Do NOT hand-edit a rename map here. If a new field's bean name differs
+    #     from its market_list name, add it once to
+    #     Constants.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD and both the reader
+    #     (input_audits.py) and this writer stay in sync automatically.
 
-    # Fields excluded from audit (Java nulls them in prepareNewRecordAudit).
-    _AUDIT_EXCLUDED_FIELDS = {'UUID', 'Origin', 'Destin', 'PerType', 'PerStart', 'PerEnd', 'DOW', 'createdAt'}
+    # Fields excluded from the data-column audit loop.
+    #  - UUID/Origin/Destin/PerType/PerStart/PerEnd/DOW/createdAt: Java nulls these
+    #    in prepareNewRecordAudit; emitted as the fixed "cleared columns" below.
+    #  - FlightNumber: the flight anchor is emitted explicitly as `flightNo` in the
+    #    metadata block (identity/anchor field, excluded from the shared rename
+    #    map), so skip it here to avoid a stray decapitalized `flightNumber` column.
+    _AUDIT_EXCLUDED_FIELDS = {'UUID', 'Origin', 'Destin', 'PerType', 'PerStart', 'PerEnd', 'DOW', 'createdAt', 'FlightNumber'}
 
     @staticmethod
     def _decapitalize(name):
@@ -922,6 +1055,15 @@ class defaultMarketlist:
             changed_at_str = ist_now.isoformat()
             changed_at_date_str = ist_now.strftime('%Y-%m-%d')
 
+            # Invert the shared source-of-truth map (bean -> market_list) to get
+            # market_list -> bean for this writer. Single source of truth lives in
+            # Constants.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD (via ConstantsUtils).
+            colname_to_bean = {
+                market_list_col: bean_col
+                for bean_col, market_list_col in
+                self.constants.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD.items()
+            }
+
             # Build the list of data columns dynamically from DEFAULT_MARKET_LIST keys
             data_columns = [
                 col for col in self.default_list.keys()
@@ -941,11 +1083,11 @@ class defaultMarketlist:
                 audit['endDate'] = None
                 audit['dayOfWeek'] = None
 
-                # Data columns: check explicit map first, then apply decapitalize,
-                # then pass through unchanged
+                # Data columns: check inverted shared map first, then apply
+                # decapitalize, then pass through unchanged
                 for mongo_col in data_columns:
-                    if mongo_col in self._AUDIT_RENAME_MAP:
-                        audit_col = self._AUDIT_RENAME_MAP[mongo_col]
+                    if mongo_col in colname_to_bean:
+                        audit_col = colname_to_bean[mongo_col]
                     else:
                         audit_col = self._decapitalize(mongo_col)
                     val = row.get(mongo_col)
@@ -964,8 +1106,8 @@ class defaultMarketlist:
                 audit['userName'] = user_name
                 audit['changedAt'] = changed_at_str
                 audit['newRecord'] = True
-                # flightNo comes from FlightNumber via the rename map, but we
-                # override it here to ensure it's the clean string (no .0 float)
+                # flightNo is the audit anchor (FlightNumber is excluded from the
+                # data-column loop). Set explicitly as a clean string (no .0 float).
                 audit['flightNo'] = (
                     str(int(float(row['FlightNumber']))) if pd.notna(row.get('FlightNumber')) else ''
                 )

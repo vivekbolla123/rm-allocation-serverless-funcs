@@ -836,6 +836,9 @@ ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = {
     "overBooking": "OverBooking",
     "cugFlag": "CugFlag",
     "mktFareFlag": "MktFareFlag",
+    # NextGen (_NG) fields where the Java bean name differs from @Column(name):
+    "competitionResponseGrid_NG": "CompetitionResponseGrid_NG",
+    "promoFlag_NG": "PromoFlag_NG",
 }
 
 ML_FLAG_COLUMNS = {
