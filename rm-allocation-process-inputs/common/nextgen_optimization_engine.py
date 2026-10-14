@@ -1753,6 +1753,8 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
+                        if daily_lf is not None and 0.0 < daily_lf <= 1.0:
+                            daily_lf = daily_lf * 100.0
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
             except Exception as e:
