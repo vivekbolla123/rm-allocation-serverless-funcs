@@ -723,10 +723,14 @@ class DynAlloc:
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
+		# Effective forecast NDO ceiling — 30 for LB/ML, 180 for WADD sectors
+		# (additive model forecasts every flight in the next 180 days).
+		forecast_ndo_max = getForecastNdoMax(self)
+
 		# Forecast PLF — computed first because the imputed-forecast guard/fallback
 		# cases below return forecast_plf when the adjustment can't be applied.
 		forecast_plf = forecastBand = CONST_NA
-		if ndocounter <= 30:
+		if ndocounter <= forecast_ndo_max:
 			forecast_plf = getParsedForecast(self)
 		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
 			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
@@ -737,7 +741,7 @@ class DynAlloc:
 		imp_forecast = CONST_NA
 		PLF_Gain = CONST_NA
 		Af_Nb_Allin = CONST_NA
-		if ndocounter <= 30:
+		if ndocounter <= forecast_ndo_max:
 			imp_forecast = getParsedImputedForecast(
 				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
 			)
@@ -754,7 +758,7 @@ class DynAlloc:
 		if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
 			imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
 			af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
-			if ndocounter <= 30:
+			if ndocounter <= forecast_ndo_max:
 				group_forecast_band_result = self.rmdatabasehelper.get_group_forecast_band(imp_forecast)
 				group_forecast_band = group_forecast_band_result.get('band', CONST_NA) if isinstance(group_forecast_band_result, dict) else CONST_NA
 		else:
@@ -800,8 +804,8 @@ class DynAlloc:
 
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
-		# Strategy Band logic
-		forecastAllocNdoMax = int(getattr(self.constantsUtils, 'FORECAST_ALLOC_NDO_MAX', 30))
+		# Strategy Band logic — WADD sectors extend the forecast NDO ceiling to 180.
+		forecastAllocNdoMax = forecast_ndo_max
 		strategy_band = group_forecast_band if (forecastAllocFlag == 1 and ndocounter <= forecastAllocNdoMax) else dplfBand_full
 
 		# Get Dynamic D1 (Time Window)
