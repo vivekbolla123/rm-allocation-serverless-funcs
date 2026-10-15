@@ -723,7 +723,7 @@ class DynAlloc:
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
-		# Effective forecast NDO ceiling — 30 for LB/ML, 180 for WADD_LB sectors
+		# Effective forecast NDO ceiling — 30 for LB/ML, 180 for WADD sectors
 		# (additive model forecasts every flight in the next 180 days).
 		forecast_ndo_max = getForecastNdoMax(self)
 
@@ -804,7 +804,7 @@ class DynAlloc:
 
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
-		# Strategy Band logic — WADD_LB sectors extend the forecast NDO ceiling to 180.
+		# Strategy Band logic — WADD sectors extend the forecast NDO ceiling to 180.
 		forecastAllocNdoMax = forecast_ndo_max
 		strategy_band = group_forecast_band if (forecastAllocFlag == 1 and ndocounter <= forecastAllocNdoMax) else dplfBand_full
 

@@ -815,7 +815,7 @@ class RBDAllocations:
 
                 # Determine whether to use forecast or dplf(variance) for band calculation.
                 # imp_forecast is only non-NA when Phase E's model-aware NDO gate
-                # allowed the forecast (30 for LB/ML, 180 for WADD_LB), so its
+                # allowed the forecast (30 for LB/ML, 180 for WADD), so its
                 # presence already encodes the correct NDO ceiling.
                 use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast))
 

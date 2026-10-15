@@ -1047,9 +1047,7 @@ class DetermineRBD:
                         
                         target_band_id = str(imp_forecast_band)
                         
-                        _fc_ndo_max = (int(getattr(self.constantsutils, 'WADD_FORECAST_NDO_MAX', 180))
-                                       if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD_LB'
-                                       else int(getattr(self.constantsutils, 'FORECAST_ALLOC_NDO_MAX', 30)))
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
                         if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
@@ -1609,9 +1607,7 @@ class DetermineRBD:
                         
                         target_band_id = str(dplfBand)
                         
-                        _fc_ndo_max = (int(getattr(self.constantsutils, 'WADD_FORECAST_NDO_MAX', 180))
-                                       if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD_LB'
-                                       else int(getattr(self.constantsutils, 'FORECAST_ALLOC_NDO_MAX', 30)))
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
                         if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
