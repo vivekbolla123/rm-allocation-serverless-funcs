@@ -466,21 +466,37 @@ class InfraManager:
 
         # 2. EventBridge Rules comparison
         rules = triggers.get("rules", [])
+        fn_arn = live_fn.get("FunctionArn", "") if live_fn else ""
+        declared_rule_names = set()
+
         if rules:
             in_sync_count = 0
             rule_diffs = []
             for r in rules:
                 r_name = r["name"]
+                declared_rule_names.add(r_name)
                 tgt_sched = r.get("schedule", "")
                 tgt_st = "ENABLED" if r.get("enabled", True) else "DISABLED"
                 try:
                     live_r = self.events.describe_rule(Name=r_name)
                     live_st = live_r.get("State")
                     live_sched = live_r.get("ScheduleExpression")
-                    if live_st == tgt_st and live_sched == tgt_sched:
-                        in_sync_count += 1
-                    else:
+
+                    # Check targets for this rule
+                    targets = self.events.list_targets_by_rule(Rule=r_name).get("Targets", [])
+                    matched_target = next(
+                        (t for t in targets if t.get("Arn") == fn_arn or t.get("Arn", "").endswith(f":{self.func_name}")),
+                        None,
+                    )
+
+                    if not matched_target:
+                        other_targets = [t.get("Arn", "").split(":")[-1] for t in targets]
+                        target_info = f"currently targets {other_targets}" if other_targets else "no targets"
+                        rule_diffs.append((r_name, f"+ [NOT ATTACHED] (Rule exists in AWS, but {target_info}; will attach to {self.func_name})"))
+                    elif live_st != tgt_st or live_sched != tgt_sched:
                         rule_diffs.append((r_name, f"~ [MODIFIED] state {live_st}->{tgt_st}, sched {live_sched}->{tgt_sched}"))
+                    else:
+                        in_sync_count += 1
                 except ClientError as e:
                     if e.response["Error"]["Code"] == "ResourceNotFoundException":
                         rule_diffs.append((r_name, f"+ [NEW] schedule: {tgt_sched} [{tgt_st}]"))
@@ -488,13 +504,36 @@ class InfraManager:
                         rule_diffs.append((r_name, f"? [ERROR] {e}"))
 
             if not rule_diffs:
-                print(f"  {Style.CYAN}[EventBridge Rules ({len(rules)})]{Style.RESET} {Style.GRAY}✓ All {len(rules)} rules are in sync with AWS{Style.RESET}")
+                print(f"  {Style.CYAN}[EventBridge Rules ({len(rules)})]{Style.RESET} {Style.GRAY}✓ All {len(rules)} rules are attached and in sync with AWS{Style.RESET}")
             else:
                 has_pending_changes = True
                 print(f"  {Style.CYAN}[EventBridge Rules ({len(rules)})]{Style.RESET} ({in_sync_count} in sync, {len(rule_diffs)} pending changes):")
                 for r_name, diff_desc in rule_diffs:
-                    color = Style.GREEN if "+ [NEW]" in diff_desc else Style.YELLOW
+                    color = Style.GREEN if "+ [NEW]" in diff_desc or "+ [NOT ATTACHED]" in diff_desc else Style.YELLOW
                     print(f"    - {r_name}: {color}{diff_desc}{Style.RESET}")
+
+        # Check for rules in AWS that target this function but were removed from config.yaml
+        if live_fn:
+            try:
+                policy_res = self.lam.get_policy(FunctionName=self.func_name)
+                policy_doc = json.loads(policy_res.get("Policy", "{}"))
+                attached_rules = set()
+                for stmt in policy_doc.get("Statement", []):
+                    source_arn = stmt.get("Condition", {}).get("ArnLike", {}).get("AWS:SourceArn", "")
+                    if ":rule/" in source_arn:
+                        attached_rules.add(source_arn.split(":rule/")[-1])
+
+                detached_rules = attached_rules - declared_rule_names
+                if detached_rules:
+                    has_pending_changes = True
+                    print(f"  {Style.YELLOW}[EventBridge Rules Removed from Config ({len(detached_rules)})]:{Style.RESET}")
+                    for dr in sorted(detached_rules):
+                        print(f"    - {dr}: {Style.RED}- [DETACHED] Rule currently targets this Lambda in AWS, but is not in config.yaml{Style.RESET}")
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "ResourceNotFoundException":
+                    pass
+            except Exception:
+                pass
 
         # 3. EventBridge Scheduler Schedules comparison
         schedules = triggers.get("schedules", [])
@@ -511,10 +550,15 @@ class InfraManager:
                     live_st = live_s.get("State")
                     live_sched = live_s.get("ScheduleExpression")
                     live_tz = live_s.get("ScheduleExpressionTimezone", "Asia/Calcutta")
-                    if live_st == tgt_st and live_sched == tgt_sched and live_tz == tgt_tz:
-                        in_sync_scheds += 1
-                    else:
+                    target_arn = live_s.get("Target", {}).get("Arn", "")
+                    is_targeted = (target_arn == fn_arn or target_arn.endswith(f":{self.func_name}"))
+
+                    if not is_targeted:
+                        sched_diffs.append((s_name, f"+ [NOT ATTACHED] (Schedule exists, but targets {target_arn.split(':')[-1]}; will attach to {self.func_name})"))
+                    elif live_st != tgt_st or live_sched != tgt_sched or live_tz != tgt_tz:
                         sched_diffs.append((s_name, f"~ [MODIFIED] state {live_st}->{tgt_st}, sched {live_sched}->{tgt_sched}"))
+                    else:
+                        in_sync_scheds += 1
                 except ClientError as e:
                     if e.response["Error"]["Code"] == "ResourceNotFoundException":
                         sched_diffs.append((s_name, f"+ [NEW] schedule: {tgt_sched} [{tgt_st}]"))
@@ -527,7 +571,7 @@ class InfraManager:
                 has_pending_changes = True
                 print(f"  {Style.CYAN}[Scheduler Jobs ({len(schedules)})]{Style.RESET} ({in_sync_scheds} in sync, {len(sched_diffs)} pending changes):")
                 for s_name, diff_desc in sched_diffs:
-                    color = Style.GREEN if "+ [NEW]" in diff_desc else Style.YELLOW
+                    color = Style.GREEN if "+ [NEW]" in diff_desc or "+ [NOT ATTACHED]" in diff_desc else Style.YELLOW
                     print(f"    - {s_name}: {color}{diff_desc}{Style.RESET}")
 
         if not triggers.get("sqs") and not rules and not schedules:
