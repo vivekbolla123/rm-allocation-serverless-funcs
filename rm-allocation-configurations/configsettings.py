@@ -63,10 +63,14 @@ param_names = [
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
     f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_ID',
     f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_SECRET',
-    f'/rm/{creenv}/rm-allocation/RM_ALERTS_TENANT_ID',
-    f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_USERNAME',
-    f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_PASSWORD'
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_TENANT_ID'
 ]
+
+if creenv == 'prod':
+    param_names.extend([
+        f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_USERNAME',
+        f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_PASSWORD'
+    ])
 
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)

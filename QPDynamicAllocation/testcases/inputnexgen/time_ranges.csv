@@ -1,0 +1,5 @@
+time_range,start,end,type
+AR,,,REF
+ExTR,-120,+120,REL
+FR,00:00,23:59,ABS
+TR,0,0,REL

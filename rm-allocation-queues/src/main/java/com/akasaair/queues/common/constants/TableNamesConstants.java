@@ -57,4 +57,9 @@ public interface TableNamesConstants {
     public static final String CONFIG_FORECAST_ALLOCATION_GRID_TABLE_NAME = "config_forecast_allocation_grid";
     public static final String CONFIG_FORECAST_ALLOCATION_BANDS_TABLE_NAME = "config_forecast_allocation_bands";
 
+    // NextGen AU Optimization & Competition Response table names
+    public static final String COMP_RESPONSE_GRID_TABLE_NAME = "comp_response_grid";
+    public static final String COMP_RESPONSE_PLF_BANDS_TABLE_NAME = "comp_response_plf_bands";
+    public static final String COMP_FARE_RECALIBRATION_TABLE_NAME = "comp_fare_recalibration";
+
 }
