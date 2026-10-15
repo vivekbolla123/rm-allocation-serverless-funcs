@@ -1155,6 +1155,78 @@ class TestNextGenOptimizationEngine:
         r_3000 = redistrib_df.loc[redistrib_df['fare'] == 3000.0, 'AU_Revised'].iloc[0]
         assert r_3000 == 0.0
 
+    def test_opening_rbd_au_when_backstop_elevates_opening_fare(self):
+        """
+        Verify that when a backstop elevates the opening fare (e.g. backstop = 7500 while
+        competitor response fare is lower, e.g. 5000), the opening RBD nearest to 7500 among
+        the 50 filed B2C levels receives positive AU (matching the opening forecast bucket),
+        and is NOT assigned AU = 0.
+        """
+        ladder = pd.DataFrame([
+            {'fare': 15000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'fare': 12000.0, 'mu': 3.0, 'sigma': 0.75},
+            {'fare': 10000.0, 'mu': 4.0, 'sigma': 1.0},
+            {'fare': 8500.0, 'mu': 5.0, 'sigma': 1.25},
+            {'fare': 7200.0, 'mu': 6.0, 'sigma': 1.5},
+            {'fare': 6000.0, 'mu': 7.0, 'sigma': 1.75},
+            {'fare': 4500.0, 'mu': 8.0, 'sigma': 2.0},
+            {'fare': 3500.0, 'mu': 9.0, 'sigma': 2.25},
+        ])
+        capacity = 189
+        cb = 50
+
+        # 50 filed levels: R0=15000 down to R49=2750 in steps of 250
+        # R30 has fare = 15000 - 30 * 250 = 7500.0
+        filed_ladder = pd.DataFrame([
+            {'RBD': f'R{i}', 'fare': 15000.0 - i * 250.0, 'TOTAL': 15000.0 - i * 250.0}
+            for i in range(50)
+        ])
+
+        # Competitor fare below backstop 7500
+        mkt_fares = [{'AirlineCode': '6E', 'Fare': 5000.0, 'outbound_stops': 0, 'outbound_duration': 120, 'DepTime': '10:30'}]
+
+        class MockDbHelper:
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                return {'response_rule': 'C', 'criteria': 'Min'}
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder, capacity, cb, 200000.0,
+            market_fares=mkt_fares,
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'b2c_backstop': 7500.0, 'first_rbd_NG': 20},
+            db_helper=MockDbHelper(),
+            filed_51_ladder_df=filed_ladder
+        )
+
+        # 1. Opening fare is 7500 (enforced by backstop)
+        assert summary['opening_fare_airline_comp'] == 7500.0
+        assert summary['opening_rbd'] == 'R30'
+
+        # 2. In 19 forecast buckets (final_df), bucket 8500 has FirstRBD seats (cb + 20 = 70)
+        # and buckets < 7500 have AU_Revised = 0.0
+        au_8500 = final_df.loc[final_df['fare'] == 8500.0, 'AU_Revised'].iloc[0]
+        assert au_8500 >= 70.0
+        assert final_df.loc[final_df['fare'] < 7500.0, 'AU_Revised'].sum() == 0.0
+
+        # 3. In the 50 filed B2C RBD mapping:
+        mapping = summary['filed_51_au_mapping']
+        # The opening RBD R30 (nearest to 7500) must receive positive AU (>= 70), NOT 0.0!
+        assert mapping['R30'] >= 70.0, f"Opening RBD R30 AU must be >= 70, got {mapping['R30']}"
+
+        # Filed levels above opening fare (R29 at 7750, R28 at 8000, R26 at 8500) must be >= R30 AU
+        assert mapping['R29'] >= mapping['R30']
+        assert mapping['R28'] >= mapping['R30']
+        assert mapping['R26'] >= mapping['R30']
+
+        # Filed levels below opening fare 7500 (R31 at 7250, R32 at 7000...) must have AU = 0.0
+        assert mapping['R31'] == 0.0
+        assert mapping['R32'] == 0.0
+        assert mapping['R49'] == 0.0
+
+        # summary['NG_FirstRBD'] and seats on opening must match
+        assert summary['NG_FirstRBD'] >= 70.0
+
+
 
 
 

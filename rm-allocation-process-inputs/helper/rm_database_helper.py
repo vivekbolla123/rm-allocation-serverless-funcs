@@ -340,7 +340,17 @@ class RMDatabaseHelper:
                             self.logger.warning(f"Error enriching with active_sectors: {e}")
                             self.mktList['forecast_model'] = None
                             self.mktList['farecap'] = None
-                    
+
+                    # WADD forecast substitution: for sectors whose forecast_model
+                    # is WADD, override forecastPLF with the additive-model forecast
+                    # (New Final Total Bookings / Capacity * 100) sourced from
+                    # add_model_fare_bucket_level_weighted. Mirrors the production
+                    # substitution done in rm-allocation-fetch-inputs.left_join_forecast.
+                    try:
+                        self._apply_wadd_forecast(self.mktList)
+                    except Exception as e:
+                        self.logger.warning(f"Error applying WADD forecast: {e}")
+
                 except Exception as e:
                     self.logger.error(f"Error in direct route aggregation: {str(e)}")
                     import traceback
@@ -795,6 +805,101 @@ class RMDatabaseHelper:
             except Exception as e:
                 self.logger.error(e)
                 return False
+
+    def _apply_wadd_forecast(self, mktList):
+        """Override forecastPLF for WADD sectors with the additive-model forecast.
+
+        Source collection: ``add_model_fare_bucket_level_weighted`` (fare-bucket
+        level; ``New Final Total Bookings`` is a flight-level value identical
+        across every fare bucket of a flight). For each
+        ``(Origin, Destin, FlightNumber, DepartureDate)`` we take one value and
+        compute ``forecastPLF = New Final Total Bookings / Capacity * 100``.
+
+        Mirrors the production substitution in
+        ``rm-allocation-fetch-inputs.left_join_forecast`` so local test runs
+        exercise the same WADD behaviour. No-op when no WADD rows exist
+        or the collection is empty.
+        """
+        if mktList is None or mktList.empty:
+            return
+        if 'forecast_model' not in mktList.columns:
+            return
+
+        model_norm = mktList['forecast_model'].astype(str).str.strip().str.upper()
+        wadd_mask = model_norm == 'WADD'
+        if not wadd_mask.any():
+            return
+
+        # Ensure the target column exists so the per-row override below can write to it.
+        if 'forecastPLF' not in mktList.columns:
+            mktList['forecastPLF'] = CONST_NA
+
+        # Local test fixtures load the WADD forecast into ``forecast_results_WADD``;
+        # production stores it in ``add_model_fare_bucket_level_weighted``. Try the
+        # local collection first, then fall back to the production one.
+        docs = list(self.db['forecast_results_WADD'].find({}, {'_id': 0}))
+        if not docs:
+            docs = list(self.db['add_model_fare_bucket_level_weighted'].find({}, {'_id': 0}))
+        if not docs:
+            self.logger.warning(
+                "WADD forecast: no documents in forecast_results_WADD or "
+                "add_model_fare_bucket_level_weighted")
+            return
+
+        wadd_df = pd.DataFrame(docs)
+        wadd_df['Origin'] = wadd_df['Sector'].astype(str).str[:3]
+        wadd_df['Destin'] = wadd_df['Sector'].astype(str).str[3:6]
+        wadd_df['DepartureDate'] = wadd_df['DepartureDate'].astype(str).str.strip()
+        wadd_df['FlightNumber'] = wadd_df['FlightNumber'].astype(str).str.strip()
+
+        # Two accepted shapes:
+        #   1. Local test file: a direct ForecastPLF column.
+        #   2. Production-shaped: fare-bucket rows carrying 'Capacity' and
+        #      'New Final Total Bookings' (PLF = bookings / capacity * 100).
+        if 'ForecastPLF' in wadd_df.columns:
+            wadd_df['forecastPLF_wadd'] = pd.to_numeric(
+                wadd_df['ForecastPLF'], errors='coerce').round(1)
+        elif {'Capacity', 'New Final Total Bookings'}.issubset(wadd_df.columns):
+            wadd_df['Capacity'] = pd.to_numeric(wadd_df['Capacity'], errors='coerce')
+            wadd_df['New Final Total Bookings'] = pd.to_numeric(
+                wadd_df['New Final Total Bookings'], errors='coerce')
+            wadd_df['forecastPLF_wadd'] = (
+                (wadd_df['New Final Total Bookings'] / wadd_df['Capacity']) * 100.0
+            ).where(wadd_df['Capacity'] > 0).round(1)
+        else:
+            self.logger.warning(
+                "WADD forecast: collection missing both 'ForecastPLF' and "
+                "('Capacity','New Final Total Bookings') columns")
+            return
+
+        wadd_df = wadd_df.drop_duplicates(
+            subset=['Origin', 'Destin', 'FlightNumber', 'DepartureDate'])
+
+        # Build a lookup keyed on (Origin, Destin, FlightNumber, DepartureDate as YYYY-MM-DD).
+        wadd_lookup = {
+            (r['Origin'], r['Destin'], r['FlightNumber'], r['DepartureDate']): r['forecastPLF_wadd']
+            for _, r in wadd_df.iterrows()
+        }
+
+        def _dep_date_yyyymmdd(per_start):
+            # market_list PerStart is MM/DD/YYYY; WADD DepartureDate is YYYY-MM-DD.
+            try:
+                return pd.to_datetime(str(per_start)).strftime('%Y-%m-%d')
+            except Exception:
+                return str(per_start)
+
+        applied = 0
+        for idx in mktList.index[wadd_mask]:
+            origin = str(mktList.at[idx, 'Origin']).strip()
+            destin = str(mktList.at[idx, 'Destin']).strip()
+            flight = str(mktList.at[idx, 'FlightNumber']).strip()
+            dep_date = _dep_date_yyyymmdd(mktList.at[idx, 'PerStart'])
+            val = wadd_lookup.get((origin, destin, flight, dep_date))
+            if val is not None and not pd.isna(val):
+                mktList.at[idx, 'forecastPLF'] = val
+                applied += 1
+
+        self.logger.info(f"WADD forecast applied to {applied} WADD rows")
 
     def format_date_to_mm_dd_yyyy(self, date_val):
         try:
@@ -3509,4 +3614,4 @@ class RMDatabaseHelper:
             getattr(getattr(self, 'currParams', None), 'mongo_master_db', None),
             getattr(self, 'mongoclient', None)
         ]
-        return self.fetch_pricing_tax_parameters(candidate_dbs)
+        return self.fetch_pricing_tax_parameters(candidate_dbs)

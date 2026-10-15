@@ -6023,7 +6023,7 @@ public class App implements CommandLineRunner {
                         continue;
                     }
 
-                    Set<String> allowedModels = Set.of("LB", "ML");
+                    Set<String> allowedModels = Set.of("LB", "ML", "WADD");
                     if (!(allowedModels.contains(forecastModel))) {
                         String allowedValues = "'" + String.join("', '", allowedModels) + "'";
                         listOfErrors.get().add("Line " + (i) + ": invalid Forecast Model, allowed values: " + allowedValues);
