@@ -62,6 +62,7 @@ class defaultMarketlist:
                     AND IL.Status NOT IN (2, 3)
                     AND IL.DepartureDate >= '{startDate}'
                     AND IL.DepartureDate <= '{endDate}'
+                    AND IL.FlightNumber < 7000
             """
             navFlights = pd.read_sql(NavitaireQuery, self.navconn)
             
