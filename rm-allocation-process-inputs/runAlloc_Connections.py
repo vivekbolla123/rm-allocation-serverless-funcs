@@ -470,8 +470,15 @@ class DynAllocConnections:
         #         apply_domestic_fare_logic = True
         #         use_sector2_fare = True
                 
-        if int(self.currParams.sosFlag) == 1:
-            should_allocate_to_y = True
+        is_through = self.is_through_flight()
+        is_sos_on = self.is_sos_active()
+
+        if is_sos_on:
+            if is_through:
+                should_allocate_to_y = False
+                print(f"Through flight ({flight1} == {flight2}) with SOS flag ON: instead of dumping on Y, setting Fare Anchor = Max(L1+L2, Market Fare).")
+            else:
+                should_allocate_to_y = True
         # elif is_sector1_domestic and is_sector2_domestic:
         #     # Both domestic
         #     if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
@@ -632,7 +639,7 @@ class DynAllocConnections:
                       self.outputSummaryRow_b2c.strategyfare = rbddata
                 if self.outputSummaryRow_b2c.strategyfare != "NA":
                     strategyFare= float(self.outputSummaryRow_b2c.strategyfare)
-                if str(self.currParams.discountflag) == "1":
+                if str(self.currParams.discountflag) == "1" and not (is_through and is_sos_on):
                     self.fareStatus = " - DiscountedFare"
                     b2cTotal = b2cdiscountedFare
                 else:
@@ -640,9 +647,10 @@ class DynAllocConnections:
                     # Phase 2: Calculate anchor fare using helper
                     alloc_forecast_plf_sector1 = self.outputSummaryRow_b2c.ImputedForecast1 if self.outputSummaryRow_b2c.ImputedForecast1 != CONST_NA else forecasted_plf_sector1
                     alloc_forecast_plf_sector2 = self.outputSummaryRow_b2c.ImputedForecast2 if self.outputSummaryRow_b2c.ImputedForecast2 != CONST_NA else forecasted_plf_sector2
+                    effective_mkt_b2c = strategyFare if strategyFare > 0 else (float(fare2) if fare2 not in ('NA', CONST_NA, None, 0, '0') else 0)
                     b2cTotal, how_determined_b2c = self._calculate_phase2_anchor_fare(
                         channel="B2C", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
-                        market_fare=strategyFare, strategy_fare=strategyFare, sector1=sector1,
+                        market_fare=effective_mkt_b2c, strategy_fare=strategyFare, sector1=sector1,
                         sector2=sector2, is_sector1_domestic=is_sector1_domestic,
                         is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
                         forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
@@ -757,7 +765,7 @@ class DynAllocConnections:
                                 self.outputSummaryRow_b2b.strategyfare = rbddata   
                         if self.outputSummaryRow_b2b.strategyfare != "NA":
                             strategyFare= float(self.outputSummaryRow_b2b.strategyfare)
-                        if str(self.currParams.discountflag) == "1":
+                        if str(self.currParams.discountflag) == "1" and not (is_through and is_sos_on):
                             self.fareStatus = " - DiscountedFare"
                             b2bTotal = b2bdiscountedFare
                         else:
@@ -765,9 +773,10 @@ class DynAllocConnections:
                             # Phase 2: Calculate anchor fare using helper
                             alloc_forecast_plf_sector1 = self.outputSummaryRow_b2b.ImputedForecast1 if self.outputSummaryRow_b2b.ImputedForecast1 != CONST_NA else forecasted_plf_sector1
                             alloc_forecast_plf_sector2 = self.outputSummaryRow_b2b.ImputedForecast2 if self.outputSummaryRow_b2b.ImputedForecast2 != CONST_NA else forecasted_plf_sector2
+                            effective_mkt_b2b = fare2 if (isinstance(fare2, (int, float)) and fare2 > 0) else strategyFare
                             b2bTotal, how_determined_b2b = self._calculate_phase2_anchor_fare(
                                 channel="B2B", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
-                                market_fare=fare2, strategy_fare=strategyFare, sector1=sector1,
+                                market_fare=effective_mkt_b2b, strategy_fare=strategyFare, sector1=sector1,
                                 sector2=sector2, is_sector1_domestic=is_sector1_domestic,
                                 is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
                                 forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
@@ -1284,6 +1293,26 @@ class DynAllocConnections:
             print(f"Error calculating international gross fare for {origin}-{destination}: {e}")
             return base_fare
 
+    def is_through_flight(self):
+        """Check if connection is a through flight where first flight number and second flight number are the same."""
+        flight1 = str(getattr(self.currParams, 'flight1', '')).strip()
+        flight2 = str(getattr(self.currParams, 'flight2', '')).strip()
+        clean_flt1 = flight1.replace('QP', '').replace('qp', '').strip()
+        clean_flt2 = flight2.replace('QP', '').replace('qp', '').strip()
+        if clean_flt1 and clean_flt1 == clean_flt2 and clean_flt1 not in ('NA', 'None', CONST_NA):
+            return True
+        if str(getattr(self.currParams, 'route_type', '')).strip().lower() == 'through':
+            return True
+        return False
+
+    def is_sos_active(self):
+        """Check if SOS flag is turned ON (1)."""
+        try:
+            sos_val = getattr(self.currParams, 'sosFlag', 0)
+            return int(float(str(sos_val).strip())) == 1
+        except (ValueError, TypeError):
+            return False
+
     def _calculate_phase2_anchor_fare(self, channel, selling_fare1, selling_fare2, market_fare, 
                                        strategy_fare, sector1, sector2, is_sector1_domestic, 
                                        is_sector2_domestic, forecasted_plf1, forecasted_plf2,
@@ -1307,6 +1336,38 @@ class DynAllocConnections:
         If DPLF band falls within 3 to 6, the threshold is considered met; otherwise not.
         International legs always use the existing PLF-based threshold regardless of NDO.
         """
+        sum_l1_l2 = selling_fare1 + selling_fare2
+
+        # Determine Sector Type and Description for String
+        if is_sector1_domestic and is_sector2_domestic:
+            sector_type_str = "DD"
+            sector_desc = "Both DOM"
+        elif is_sector1_domestic and not is_sector2_domestic:
+            sector_type_str = "DI"
+            sector_desc = "DOM and INT"
+        elif not is_sector1_domestic and is_sector2_domestic:
+            sector_type_str = "ID"
+            sector_desc = "INT and DOM"
+        else:
+            sector_type_str = "II"
+            sector_desc = "Both INT"
+
+        # Check for Through flight with SOS flag ON: Fare Anchor = Max (L1 + L2, Market Fare)
+        if self.is_through_flight() and self.is_sos_active():
+            status_str = "Through Flight SOS Active"
+            effective_mkt = 0.0
+            for m in (market_fare, strategy_fare):
+                if m not in (None, '', 'NA', CONST_NA, 0, '0', '0.0'):
+                    try:
+                        val = float(m)
+                        if val > 0:
+                            effective_mkt = max(effective_mkt, val)
+                    except (ValueError, TypeError):
+                        pass
+            anchor_fare = max(sum_l1_l2, effective_mkt) if effective_mkt > 0 else sum_l1_l2
+            how_determined = f"Matched and allocated {sector_type_str} - {status_str}, {sector_desc}"
+            return anchor_fare, how_determined
+
         DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
@@ -1345,22 +1406,6 @@ class DynAllocConnections:
             leg2_meets = forecasted_plf2 >= DOM_FORECAST_THRESHOLD
         else:
             leg2_meets = plf2 >= int_plf_threshold
-        
-        sum_l1_l2 = selling_fare1 + selling_fare2
-
-        # Determine Sector Type and Description for String
-        if is_sector1_domestic and is_sector2_domestic:
-            sector_type_str = "DD"
-            sector_desc = "Both DOM"
-        elif is_sector1_domestic and not is_sector2_domestic:
-            sector_type_str = "DI"
-            sector_desc = "DOM and INT"
-        elif not is_sector1_domestic and is_sector2_domestic:
-            sector_type_str = "ID"
-            sector_desc = "INT and DOM"
-        else:
-            sector_type_str = "II"
-            sector_desc = "Both INT"
 
         status_str = ""
         
