@@ -13,6 +13,8 @@ GROUP_QUOTATION =  '{ "Q2": "GJ", "Q4": "GI", "Q6": "GH", "Q8": "GG", "Q10": "GF
 B2B_DISCOUNT_MAP = '{ "0": "450", "1": "350", "2": "250", "3": "150" }'
 
 MARKET_FARES_THRESHOLD = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
+MARKET_FARES_THRESHOLD_INTERNATIONAL = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
+LAST_RUN_OPENING_FARE_SECTORS = '["BOMJED"]'
 SOFTBLOCK_RBDS = '["G8","W9","W8","W7","W6","W5","W4","W3", "W2", "W1", "S"]'
 CONNECTION_CARRIER_INCLUSION = '["6E","AI","IX","XY","FZ","GF","J9","KU","FD","SG","TG","WY","VZ","SV","F3"]'
 
@@ -217,6 +219,8 @@ TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
 DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
+MARKET_FARES_THRESHOLD_INTERNATIONAL_KEY = 'MARKET_FARES_THRESHOLD_INTERNATIONAL'
+LAST_RUN_OPENING_FARE_SECTORS_KEY = 'LAST_RUN_OPENING_FARE_SECTORS'
 FORECAST_ALLOC_NDO_MAX_KEY = 'FORECAST_ALLOC_NDO_MAX'
 WADD_FORECAST_NDO_MAX_KEY = 'WADD_FORECAST_NDO_MAX'
 

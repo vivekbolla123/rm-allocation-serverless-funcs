@@ -1006,11 +1006,84 @@ class DynAlloc:
 						if lastSoldFareb2c_val != CONST_NA and not pd.isna(lastSoldFareb2c_val):
 							lastSoldFareb2c_val, conversion_rate = self.convert_currency('INR', self.currency, lastSoldFareb2c_val)
 
+		# Check if sector is in LAST_RUN_OPENING_FARE_SECTORS (e.g. BOMJED)
+		configured_opening_fare_sectors = getattr(self.constantsUtils, 'LAST_RUN_OPENING_FARE_SECTORS', [])
+		if isinstance(configured_opening_fare_sectors, str):
+			try:
+				configured_opening_fare_sectors = json.loads(configured_opening_fare_sectors)
+			except Exception:
+				configured_opening_fare_sectors = [s.strip().upper() for s in configured_opening_fare_sectors.split(',') if s.strip()]
+		configured_sectors_set = {str(s).strip().upper() for s in configured_opening_fare_sectors if s}
+		current_sector = f"{self.currParams.origin}{self.currParams.destin}".upper()
+
+		if current_sector in configured_sectors_set:
+			is_b2c_mkt_missing = (not getattr(state, 'isB2CMarketFareAvailable', False)) or (str(getattr(self.outputSummaryRow_b2c, 'MktFare_Min', '0')) in ('0', '0.0', CONST_NA, 'None', 'Market Fare not found', ''))
+			if is_b2c_mkt_missing:
+				last_run_opening_b2c = self._get_last_run_opening_fare(state, channel=B2C_CHANNEL)
+				if last_run_opening_b2c is not None:
+					self.logger.info(f"Sector {current_sector} configured in LAST_RUN_OPENING_FARE_SECTORS and B2C market fare missing. Overriding lastSoldFareb2c ({lastSoldFareb2c_val}) with last run opening fare ({last_run_opening_b2c}).")
+					lastSoldFareb2c_val = last_run_opening_b2c
+
+			is_b2b_mkt_missing = (not getattr(state, 'isB2BMarketFareAvailable', False)) or (str(getattr(self.outputSummaryRow_b2b, 'MktFare_Min', '0')) in ('0', '0.0', CONST_NA, 'None', 'Market Fare not found', ''))
+			if is_b2b_mkt_missing:
+				last_run_opening_b2b = self._get_last_run_opening_fare(state, channel=B2B_CHANNEL)
+				if last_run_opening_b2b is None and is_b2c_mkt_missing:
+					last_run_opening_b2b = last_run_opening_b2c
+				if last_run_opening_b2b is not None:
+					self.logger.info(f"Sector {current_sector} configured in LAST_RUN_OPENING_FARE_SECTORS and B2B market fare missing. Overriding lastSoldFareb2b ({lastSoldFareb2b_val}) with last run opening fare ({last_run_opening_b2b}).")
+					lastSoldFareb2b_val = last_run_opening_b2b
+
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
 		state.last_seven_avg_val = last_seven_avg_val
 		state.currency = self.currency
 		state.conversion_rate = conversion_rate
+
+	def _get_last_run_opening_fare(self, state, channel=B2C_CHANNEL):
+		"""Retrieve the opening fare from the previous run for the current flight,
+		departure date, and sector from Redis run_history."""
+		flight_number = str(getattr(self.currParams, 'flight_number', '') or getattr(state, 'currFlt', '')).strip()
+		origin = getattr(self.currParams, 'origin', '')
+		destin = getattr(self.currParams, 'destin', '')
+		per_start = str(getattr(self.currParams, 'per_start', '') or getattr(state, 'currFltDate', '')).strip()
+
+		fare = None
+		try:
+			history = None
+			if hasattr(self, 'determinerbd') and self.determinerbd is not None:
+				if hasattr(self.determinerbd, 'get_autotolerance_history'):
+					history = self.determinerbd.get_autotolerance_history(self.currParams)
+			if not history:
+				redis_client = getattr(self, 'cache_client', None) or getattr(self, 'redishelper', None)
+				if redis_client and hasattr(redis_client, 'hget'):
+					flt_variants = [flight_number, flight_number.replace('QP', '').replace('qp', '').strip()]
+					for flt in flt_variants:
+						if not flt:
+							continue
+						redis_key = f"run_history:{origin}_{destin}_{flt}_{per_start}"
+						state_str = redis_client.hget(redis_key, "autotolerance_history")
+						if state_str:
+							if isinstance(state_str, bytes):
+								state_str = state_str.decode('utf-8')
+							history = json.loads(state_str)
+							if history:
+								break
+			if history and isinstance(history, list):
+				for entry in reversed(history):
+					if isinstance(entry, dict):
+						val = entry.get('selling_fare') or entry.get('opening_fare') or entry.get('SellingFare')
+						if val not in (None, '', CONST_NA, 'NA', 'None', 'nan'):
+							try:
+								num = float(val)
+								if num > 0:
+									fare = num
+									break
+							except (ValueError, TypeError):
+								continue
+		except Exception as e:
+			self.logger.debug(f"Error fetching opening fare from Redis run_history: {e}")
+
+		return fare
 
 	def _phaseJ_spoilageReduction(self, state):
 		"""Phase J — NDO-0 spoilage-reduction trigger (PLF threshold, time-to-

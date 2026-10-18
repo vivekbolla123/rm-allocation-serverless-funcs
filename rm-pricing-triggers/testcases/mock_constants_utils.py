@@ -35,6 +35,8 @@ class ConstantsUtils:
         self.END_OF_DAY_LF_FACTOR = 0.95
         self.AU_COLUMN_LENGTH_CONNECTIONS = 84
         self.MARKET_FARES_THRESHOLD = '[ {"startNdo": 0, "endNdo": 7, "value": 2} ]'
+        self.MARKET_FARES_THRESHOLD_INTERNATIONAL = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
+        self.LAST_RUN_OPENING_FARE_SECTORS = ["BOMJED"]
         self.GROUP_QUOTATION = '{ "Q2": "GJ", "Q4": "GI" }'
         self.TBF_RBD = "TF,TE,TD,TC,TB,TY"
         self.CUG_RBD = "WA,WB,WC,WD,WE"

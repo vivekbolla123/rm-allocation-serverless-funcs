@@ -32,6 +32,8 @@ class ConstantsUtils:
         self.END_OF_DAY_LF_FACTOR = END_OF_DAY_LF_FACTOR
         self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
+        self.MARKET_FARES_THRESHOLD_INTERNATIONAL = MARKET_FARES_THRESHOLD_INTERNATIONAL
+        self.LAST_RUN_OPENING_FARE_SECTORS = self._parse_sectors_json(LAST_RUN_OPENING_FARE_SECTORS)
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
         self.W_RBD = W_RBD
@@ -282,6 +284,10 @@ class ConstantsUtils:
                 self.OVERBOOKING_FARE_ABSOLUTE_VALUE = float(parameter_value) 
             elif parameter_key == MARKET_FARES_THRESHOLD_KEY:
                 self.MARKET_FARES_THRESHOLD = parameter_value
+            elif parameter_key == MARKET_FARES_THRESHOLD_INTERNATIONAL_KEY:
+                self.MARKET_FARES_THRESHOLD_INTERNATIONAL = parameter_value
+            elif parameter_key == LAST_RUN_OPENING_FARE_SECTORS_KEY:
+                self.LAST_RUN_OPENING_FARE_SECTORS = self._parse_sectors_json(parameter_value)
             elif parameter_key == GROUP_QUOTATION_KEY:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
@@ -649,6 +655,23 @@ class ConstantsUtils:
         except Exception as e:
             self.logger.error(f"Error parsing farecap distance config: {e}")
             return [(0, 500, 7500), (500, 1000, 12000), (1000, 1500, 15000), (1500, float('inf'), 20000)]
+
+    def _parse_sectors_json(self, raw_val):
+        """Parse sector list JSON/string into a list of uppercase sector strings."""
+        if not raw_val:
+            return []
+        if isinstance(raw_val, (list, tuple, set)):
+            return [str(s).strip().upper() for s in raw_val if s]
+        if isinstance(raw_val, str):
+            try:
+                parsed = json.loads(raw_val)
+                if isinstance(parsed, list):
+                    return [str(s).strip().upper() for s in parsed if s]
+                elif isinstance(parsed, dict):
+                    return [str(s).strip().upper() for s in parsed.keys() if s]
+            except Exception:
+                return [s.strip().upper() for s in raw_val.split(',') if s.strip()]
+        return []
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value

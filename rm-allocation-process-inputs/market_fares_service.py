@@ -266,25 +266,46 @@ class MarketFareService:
             
         return self.prepareResponse(startTime, endTime, criteria, mktFareRange)
     
+    def is_international(self, params):
+        """Checks if flight/market is international based on params.region."""
+        return str(getattr(params, 'region', '')).strip().lower() == 'international'
+
     def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, origin, destin, includeWeekend):
-        ndo=self.timeutils.calculate_ndo(flightDate)
-        hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
-        if params.mongodb=='1':
-            return self.mongohelper.getMarketFareRange(channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs)
+        ndo = self.timeutils.calculate_ndo(flightDate)
+        threshold_json = self.constantsutils.MARKET_FARES_THRESHOLD
+        if self.is_international(params):
+            threshold_json = getattr(self.constantsutils, 'MARKET_FARES_THRESHOLD_INTERNATIONAL', None) or threshold_json
+        hrs = self.get_value_for_ndo(threshold_json, ndo)
+        if hrs is None:
+            hrs = self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD, ndo)
+        if params.mongodb == '1':
+            return self.mongohelper.getMarketFareRange(channel, params, flightDate, daySpan, start_time, end_time, includeWeekend, hrs)
         else:
             return self.rmdatabasehelper.getMarketFareRange(
-                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs, origin, destin
+                channel, params, flightDate, daySpan, start_time, end_time, includeWeekend, hrs, origin, destin
             )
 
-    def get_value_for_ndo(self,json_string, ndo):
-        
-        ranges = json.loads(json_string)
-        
-        
+    def get_value_for_ndo(self, json_string, ndo):
+        if not json_string:
+            return None
+        if isinstance(json_string, list):
+            ranges = json_string
+        elif isinstance(json_string, str):
+            try:
+                ranges = json.loads(json_string)
+            except Exception as e:
+                self.logger.error(f"Error parsing NDO threshold JSON: {e}")
+                return None
+        else:
+            return None
+
         for range_dict in ranges:
-            if int(range_dict['startNdo']) <= ndo <= int(range_dict['endNdo']):
-                return range_dict['value']
-        
+            try:
+                if int(range_dict['startNdo']) <= ndo <= int(range_dict['endNdo']):
+                    return range_dict['value']
+            except (KeyError, ValueError, TypeError):
+                continue
+
         return None 
     
     def getMarketFareRangeminomaxo(self, mktFareRange):
