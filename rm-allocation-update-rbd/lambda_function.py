@@ -6,6 +6,7 @@ import time
 from uuid import uuid4
 from datetime import datetime
 from pymongo import MongoClient
+from pymongo.errors import DuplicateKeyError
 import requests
 import configsettings
 from redis import Redis
@@ -394,7 +395,7 @@ def lambda_handler(event, context):
                        allocation_data["b2bRunId"], countOfFailures, countOfTotal,
                        navAuditId=nav_audit_id, sector=sector_val, flightNumber=flight_number_val,
                        departureDate=dept_date_val, flight=flight, rbds=rbds)
-        updateRunAudit(run_id, start_date_f,origin+destination, identifier, json.dumps(allocation_result))
+        updateRunAudit(run_id, dept_date_val, sector_val, flight_number_val, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
         log_time.send_time_log_db()
         
@@ -482,19 +483,37 @@ def updateRunAudit(run_id, start_date,sector, flight, result):
         except Exception as e:
             logger.error(f"Redis incr failed: {e}")
 
-def insert_run_fltDate_audit(run_id,sector, flightNumber, flightDate, result):
-    document = {
+def insert_run_fltDate_audit(run_id, sector, flightNumber, flightDate, result):
+    filter_doc = {
         "runId": run_id,
-        "flightNumber": flightNumber,
+        "flightNumber": str(flightNumber),
         "sector": sector,
-        "flightDate": flightDate,
+        "flightDate": flightDate
+    }
+    update_fields = {
         "result": result,
         "b2cstatus": "Done",
         "b2bstatus": "Done",
-        "createdAt": datetime.now()
+        "updatedAt": datetime.now()
     }
     try:
-        run_flight_date_audit_col.insert_one(document)
+        if run_flight_date_audit_col is not None:
+            run_flight_date_audit_col.update_one(
+                filter_doc,
+                {
+                    "$set": update_fields,
+                    "$setOnInsert": {
+                        "createdAt": datetime.now()
+                    }
+                },
+                upsert=True
+            )
+    except DuplicateKeyError:
+        if run_flight_date_audit_col is not None:
+            run_flight_date_audit_col.update_one(
+                filter_doc,
+                {"$set": update_fields}
+            )
     except Exception as e:
         logger.error(f"Error in insert_run_fltDate_audit: {e}")
         raise e

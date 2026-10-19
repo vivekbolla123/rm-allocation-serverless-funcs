@@ -2635,16 +2635,24 @@ class RMDatabaseHelper:
 
     def insert_run_fltDate_audit(self, run_id, flightNumber,sector, flightDate, result, b2cstatus, b2bstatus):
         try:
-            self.db.run_flight_date_audit.insert_one({
+            filter_doc = {
                 "runId": run_id,
-                "flightNumber": flightNumber,
-                "sector":sector,
-                "flightDate": flightDate,
-                "result": result,
-                "b2cstatus": b2cstatus,
-                "b2bstatus": b2bstatus,
-                "createdAt": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            })
+                "flightNumber": str(flightNumber),
+                "sector": sector,
+                "flightDate": flightDate
+            }
+            update_doc = {
+                "$set": {
+                    "result": result,
+                    "b2cstatus": b2cstatus,
+                    "b2bstatus": b2bstatus,
+                    "updatedAt": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                },
+                "$setOnInsert": {
+                    "createdAt": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                }
+            }
+            self.db.run_flight_date_audit.update_one(filter_doc, update_doc, upsert=True)
         except Exception as e:
             self.logger.error(e)
 
