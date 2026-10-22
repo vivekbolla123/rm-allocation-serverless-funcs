@@ -2317,7 +2317,7 @@ class DynAlloc:
 		"""Return True when the B2B output-summary row should be skipped, based on the region-keyed
 		``B2B_DIRECT_OUTPUT_SUMMARY_FLAG`` constant. The flag is a JSON map like ``{"Domestic": false, "International": true}``.
 		"""
-		flag_map = getattr(self.constantsUtils, 'B2B_DIRECT_OUTPUT_SUMMARY_FLAG', None)
+		flag_map = self.constantsUtils.B2B_DIRECT_OUTPUT_SUMMARY_FLAG
 		if not isinstance(flag_map, dict):
 			return False
 
