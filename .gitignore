@@ -9,3 +9,7 @@ local.env
 
 # kiro
 .kiro
+
+# additive local folders
+additive_model_output/
+additive_model_cache/
