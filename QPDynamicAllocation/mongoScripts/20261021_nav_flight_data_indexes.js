@@ -4,6 +4,11 @@
  * Collection: nav_flight_data  (written by rm-allocation-scheduled-jobs
  *             navitaireCache.py, module key "navitaire_cache")
  *
+ * NOTE: navitaireCache.py rebuilds these same indexes on its staging
+ * collection on every run (it swaps staging -> live via renameCollection), so
+ * indexes are maintained automatically in steady state. This script is for
+ * initial / manual setup and verification.
+ *
  * Indexes:
  *   1. flight_key (unique)  - upsert key; one doc per flight.
  *   2. (departure_date, sector) - range + sector lookups (reports, prefetch).

@@ -165,6 +165,7 @@ class ConstantsUtils:
         self.lsf_fallback_n_runs = LSF_FALLBACK_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
+        self.NAV_CACHE_CONFIG = NAV_CACHE_CONFIG
 
         # Inventory Optimization (EMSR-b) Constants
         self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
@@ -613,6 +614,8 @@ class ConstantsUtils:
                 self.TIME_BAND_HOURS = int(parameter_value)
             elif parameter_key == ML_FLAG_COLUMNS_KEY:
                 self.ML_FLAG_COLUMNS = int(parameter_value)
+            elif parameter_key == NAV_CACHE_CONFIG_KEY:
+                self.NAV_CACHE_CONFIG = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

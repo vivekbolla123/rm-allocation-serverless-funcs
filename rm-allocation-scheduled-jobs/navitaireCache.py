@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import configsettings
-from pymongo import UpdateOne
 from constants_utils import ConstantsUtils
 
 
@@ -34,9 +33,13 @@ class NavitaireCache:
 
     Storage: MongoDB (not Redis)
     ----------------------------
-    ~72k flights are written to ``qp_rm_master.nav_flight_data`` as one document
-    per flight, upserted by ``flight_key`` (non-destructive: existing docs are
-    updated, never dropped). ``flight_key`` matches the schedule30 convention:
+    Flights are fetched across 30-day batches into one DataFrame, then the fresh
+    generation is bulk-inserted (``insert_many`` in 5k chunks, one round trip
+    per chunk) into ``qp_rm_master.nav_flight_data``. Each doc is tagged with
+    the run's ``cached_at_ist``; after the new generation lands, older
+    generations are deleted in a single ``delete_many``. New data is written
+    before old is removed, so a failure never leaves the collection empty.
+    ``flight_key`` matches the schedule30 convention:
         ``{DepartureStation}{ArrivalStation}_{FlightNumber}_{DepartureDate}``.
 
     QP fares
@@ -52,9 +55,9 @@ class NavitaireCache:
     MAX_RETRIES = 3
     RETRY_BACKOFF_SECONDS = 5
 
-    # Batch sizing.
-    BATCH_DAYS = 30            # departure-date window per Navitaire query
-    MONGO_BATCH_SIZE = 2000    # docs per bulk_write
+    # Batch-sizing defaults (overridden by constants.NAV_CACHE_CONFIG).
+    DEFAULT_BATCH_DAYS = 30            # departure-date window per Navitaire query
+    DEFAULT_MONGO_BATCH_SIZE = 5000    # docs per insert_many chunk
 
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
@@ -74,6 +77,15 @@ class NavitaireCache:
         self.available_rbd_classes = [
             c.strip() for c in self.constants.B2C_RBD_VALUES.split(",") if c.strip()
         ]
+
+        # Batch sizing from constants.NAV_CACHE_CONFIG (dict), with fallbacks.
+        nav_cache_config = getattr(self.constants, "NAV_CACHE_CONFIG", None) or {}
+        self.batch_days = int(
+            nav_cache_config.get("BATCH_DAYS", self.DEFAULT_BATCH_DAYS)
+        )
+        self.mongo_batch_size = int(
+            nav_cache_config.get("MONGO_BATCH_SIZE", self.DEFAULT_MONGO_BATCH_SIZE)
+        )
 
         self.collection = self.mongo_master_db[self.TARGET_COLLECTION]
 
@@ -110,11 +122,11 @@ class NavitaireCache:
         return f"{row['Origin']}{row['Destination']}_{flight_number}_{departure_date}"
 
     def _date_batches(self):
-        """Yield (batch_start, batch_end) date tuples of at most BATCH_DAYS."""
+        """Yield (batch_start, batch_end) date tuples of at most batch_days."""
         cur = self.departure_start_date
         while cur <= self.departure_end_date:
             batch_end = min(
-                cur + timedelta(days=self.BATCH_DAYS - 1), self.departure_end_date
+                cur + timedelta(days=self.batch_days - 1), self.departure_end_date
             )
             yield cur, batch_end
             cur = batch_end + timedelta(days=1)
@@ -352,29 +364,48 @@ class NavitaireCache:
         }
 
     # ------------------------------------------------------------------ #
-    # MongoDB write (non-destructive upsert)
+    # MongoDB write (bulk insert into staging, then atomic swap)
     # ------------------------------------------------------------------ #
-    def upsert_flights(self, df, cached_at_ist, qp_fares):
-        """Bulk-upsert flight docs by flight_key. Returns count written."""
-        ops = []
-        written = 0
-        for _, flight in df.iterrows():
-            doc = self._build_doc(flight, cached_at_ist, qp_fares)
-            ops.append(
-                UpdateOne(
-                    {"flight_key": doc["flight_key"]},
-                    {"$set": doc},
-                    upsert=True,
-                )
+    def insert_snapshot(self, docs):
+        """Build a fresh snapshot in a staging collection and swap it in.
+
+        ``insert_many(ordered=False)`` in 5k chunks (one round trip per chunk)
+        is far faster than per-doc upserts. The staging collection is renamed
+        over the live one (``dropTarget=True``), an atomic swap: the live data
+        stays intact and fully queryable until the instant the swap completes,
+        and never contains two generations at once (safe with the unique
+        ``flight_key`` index). Returns count inserted.
+        """
+        staging_name = f"{self.TARGET_COLLECTION}_staging"
+        staging = self.mongo_master_db[staging_name]
+
+        # Start clean in case a prior run was interrupted mid-swap.
+        staging.drop()
+
+        inserted = 0
+        for i in range(0, len(docs), self.mongo_batch_size):
+            chunk = docs[i:i + self.mongo_batch_size]
+            staging.insert_many(chunk, ordered=False)
+            inserted += len(chunk)
+            self.logger.info(
+                "Inserted chunk %s (%s/%s docs) into %s",
+                (i // self.mongo_batch_size) + 1, inserted, len(docs), staging_name,
             )
-            if len(ops) >= self.MONGO_BATCH_SIZE:
-                self.collection.bulk_write(ops, ordered=False)
-                written += len(ops)
-                ops = []
-        if ops:
-            self.collection.bulk_write(ops, ordered=False)
-            written += len(ops)
-        return written
+
+        # Build indexes on staging AFTER load (faster than indexing per-insert).
+        # They travel with the collection through the rename, so the live cache
+        # keeps its indexes. Mirrors mongoScripts/..._nav_flight_data_indexes.js.
+        staging.create_index("flight_key", name="uq_flight_key", unique=True)
+        staging.create_index(
+            [("departure_date", 1), ("sector", 1)], name="ix_departure_date_sector"
+        )
+        staging.create_index("sector", name="ix_sector")
+        staging.create_index("departure_date", name="ix_departure_date")
+
+        # Atomic swap: staging -> live, dropping the previous generation.
+        staging.rename(self.TARGET_COLLECTION, dropTarget=True)
+        self.logger.info("Swapped %s -> %s", staging_name, self.TARGET_COLLECTION)
+        return inserted
 
     def _write_meta(self, cached_at_ist, flight_count, refresh_failed, note=""):
         """Upsert a single metadata doc so staleness is always recorded."""
@@ -399,10 +430,15 @@ class NavitaireCache:
     # Entry point
     # ------------------------------------------------------------------ #
     def run(self):
-        """Fetch in 30-day batches and upsert to qp_rm_master.nav_flight_data."""
+        """Fetch all batches into one frame, then bulk-insert the snapshot.
+
+        Write strategy: build the fresh snapshot in a staging collection and
+        atomically rename it over the live one. The live cache stays intact and
+        queryable until the swap, so a fetch/insert failure never empties it.
+        """
         self.logger.info(
             "Starting Navitaire cache refresh (%s to %s) in %s-day batches",
-            self.departure_start_date, self.departure_end_date, self.BATCH_DAYS,
+            self.departure_start_date, self.departure_end_date, self.batch_days,
         )
 
         cached_at_ist = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
@@ -410,48 +446,84 @@ class NavitaireCache:
         # QP fares fetched once and reused across all batches.
         qp_fares = self.get_qp_fares()
 
-        total_written = 0
+        # ---- Phase 1: fetch every batch into a single DataFrame ----
+        fetch_start = time.monotonic()
+        frames = []
         failed_batches = []
 
         for batch_start, batch_end in self._date_batches():
             try:
                 df = self.get_bookload_with_opening_rbd(batch_start, batch_end)
+                if not df.empty:
+                    frames.append(df)
             except Exception as e:
-                # This batch's existing docs stay untouched (stale). Record and
-                # continue with other batches so one failure isn't fatal.
                 failed_batches.append(f"{batch_start}:{batch_end} ({e})")
                 self.logger.error(
-                    "Batch %s..%s failed after retries; leaving its docs stale.",
-                    batch_start, batch_end,
+                    "Batch %s..%s failed after retries.", batch_start, batch_end
                 )
-                continue
 
-            if df.empty:
-                self.logger.info("Batch %s..%s returned no rows.", batch_start, batch_end)
-                continue
+        fetch_secs = time.monotonic() - fetch_start
 
-            try:
-                written = self.upsert_flights(df, cached_at_ist, qp_fares)
-                total_written += written
-                self.logger.info(
-                    "Batch %s..%s: upserted %s flights", batch_start, batch_end, written
-                )
-            except Exception:
-                failed_batches.append(f"{batch_start}:{batch_end} (mongo write)")
-                self.logger.error("Mongo write failed for batch %s..%s", batch_start, batch_end)
-                traceback.print_exc()
+        if not frames:
+            self.logger.error(
+                "No data fetched (%s failed batches); leaving existing cache intact.",
+                len(failed_batches),
+            )
+            self._write_meta(
+                cached_at_ist=cached_at_ist,
+                flight_count=0,
+                refresh_failed=True,
+                note="no data fetched; " + "; ".join(failed_batches),
+            )
+            return False
+
+        all_df = pd.concat(frames, ignore_index=True)
+        self.logger.info(
+            "Fetch phase done: %s flights in %.1fs (%s failed batches)",
+            len(all_df), fetch_secs, len(failed_batches),
+        )
+
+        # ---- Build docs in memory ----
+        build_start = time.monotonic()
+        docs = [
+            self._build_doc(flight, cached_at_ist, qp_fares)
+            for _, flight in all_df.iterrows()
+        ]
+        self.logger.info(
+            "Built %s docs in %.1fs", len(docs), time.monotonic() - build_start
+        )
+
+        # ---- Phase 2: bulk insert into staging, then atomic swap ----
+        insert_start = time.monotonic()
+        try:
+            inserted = self.insert_snapshot(docs)
+            insert_secs = time.monotonic() - insert_start
+            self.logger.info(
+                "Insert phase done: %s docs in %.1fs", inserted, insert_secs
+            )
+        except Exception:
+            self.logger.error("Mongo write failed; existing cache left intact.")
+            traceback.print_exc()
+            self._write_meta(
+                cached_at_ist=cached_at_ist,
+                flight_count=0,
+                refresh_failed=True,
+                note="mongo bulk insert failed",
+            )
+            return False
 
         refresh_failed = bool(failed_batches)
         note = "" if not refresh_failed else "failed batches: " + "; ".join(failed_batches)
         self._write_meta(
             cached_at_ist=cached_at_ist,
-            flight_count=total_written,
+            flight_count=inserted,
             refresh_failed=refresh_failed,
             note=note,
         )
 
         self.logger.info(
-            "Navitaire cache refresh done: %s flights upserted, %s failed batches",
-            total_written, len(failed_batches),
+            "Navitaire cache refresh done: %s flights (fetch %.1fs, insert %.1fs), "
+            "%s failed batches",
+            inserted, fetch_secs, insert_secs, len(failed_batches),
         )
         return not refresh_failed
