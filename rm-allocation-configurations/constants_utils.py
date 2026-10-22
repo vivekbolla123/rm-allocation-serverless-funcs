@@ -83,6 +83,7 @@ class ConstantsUtils:
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
         self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
+        self.B2B_DIRECT_OUTPUT_SUMMARY_FLAG = json.loads(B2B_DIRECT_OUTPUT_SUMMARY_FLAG)
         self.AF_PLF_FORECAST_CAP = AF_PLF_FORECAST_CAP
         self.AF_PLF_GAIN_MAX_ZERO = AF_PLF_GAIN_MAX_ZERO
         self.AF_CONSTANT_BAND_2 = AF_CONSTANT_BAND_2
@@ -165,6 +166,7 @@ class ConstantsUtils:
         self.lsf_fallback_n_runs = LSF_FALLBACK_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
+        self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(AUTO_BACKSTOP_FORECAST_THRESHOLD)
         self.NAV_CACHE_CONFIG = NAV_CACHE_CONFIG
 
         # Inventory Optimization (EMSR-b) Constants
@@ -389,6 +391,8 @@ class ConstantsUtils:
                 self.TOLERANCE_MAP = json.loads(parameter_value)
             elif parameter_key == B2B_FACTOR_MAP_KEY:
                 self.B2B_FACTOR_MAP = json.loads(parameter_value)
+            elif parameter_key == B2B_DIRECT_OUTPUT_SUMMARY_FLAG_KEY:
+                self.B2B_DIRECT_OUTPUT_SUMMARY_FLAG = json.loads(parameter_value)
             elif parameter_key == DEFAULT_D3_VALUE_KEY:
                 self.DEFAULT_D3_VALUE = int(parameter_value)
             elif parameter_key == D3_MIN_RULES_KEY:
@@ -549,6 +553,8 @@ class ConstantsUtils:
                 self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == AUTO_BACKSTOP_FORECAST_THRESHOLD_KEY:
+                self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
                 self.EMSR_SIGMA_FACTOR = float(parameter_value)
             elif parameter_key == PROMO_FARE_RATIO_KEY:
