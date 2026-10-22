@@ -472,7 +472,8 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
     'buy_up_factor', 'RunId', 'Id',
     'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
     'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
-    'analystName', 'status', 'allocationStatus'
+    'analystName', 'status', 'allocationStatus',
+    'ConversionRate', 'Currency'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
@@ -487,7 +488,8 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
     'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
+    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId',
+    'ConversionRate', 'Currency'
 ]
 
 

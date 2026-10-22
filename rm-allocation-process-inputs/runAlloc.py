@@ -1753,6 +1753,27 @@ class DynAlloc:
 							if daily_af is not None:
 								ng_summary['NG_AF_Forecast'] = daily_af
 
+					# Currency conversion for weighted-file-derived (INR) fares.
+					# INR -> sector home currency (multiply); (1.0, 'INR') when no
+					# conversion. ONLY the weighted-file fares are converted here;
+					# market / OAL fares stay in home currency and are left untouched.
+					ng_rate, ng_curr = self.resolve_home_conversion(self.currency)
+
+					def _conv_inr(value):
+						"""Scale an INR fare/revenue value into home currency by ng_rate.
+						Leaves CONST_NA / non-numeric values unchanged."""
+						if value is None or str(value) == CONST_NA:
+							return value
+						try:
+							if pd.isna(value):
+								return value
+						except (TypeError, ValueError):
+							pass
+						try:
+							return float(value) * ng_rate
+						except (TypeError, ValueError):
+							return value
+
 					# Populate OutputSummaryNextGen (All fares are presented as ALL-IN fares)
 					ng_row = OutputSummaryNextGen()
 					ng_row.Origin = self.currParams.origin
@@ -1776,18 +1797,21 @@ class DynAlloc:
 					ng_row.NG_Historical_current_booked = to_float(currBookedLoad, 0.0)
 					ng_row.NG_LF_Forecast = ng_summary.get('NG_LF_Forecast')
 					ng_row.NG_AF_Forecast = safe_round_fare(ng_summary.get('NG_AF_Forecast'))
-					ng_row.NG_Opening_fare = safe_round_fare(ng_summary.get('NG_Opening_fare'))
+					ng_row.NG_Opening_fare = safe_round_fare(_conv_inr(ng_summary.get('NG_Opening_fare')))
 					strat_val = ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare'))
 					anch_val = ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare'))
-					ng_row.NG_Strategy_fare = safe_round_fare(strat_val)
-					ng_row.NG_Anchor_fare = safe_round_fare(anch_val)
-					ng_row.Current_Revenue = to_float(curr_rev, 0.0)
-					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
-					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
+					ng_row.NG_Strategy_fare = safe_round_fare(_conv_inr(strat_val))
+					ng_row.NG_Anchor_fare = safe_round_fare(_conv_inr(anch_val))
+					ng_row.Current_Revenue = _conv_inr(to_float(curr_rev, 0.0))
+					ng_row.Total_Expected_Revenue = _conv_inr(ng_summary.get('Total_Expected_Revenue'))
+					ng_row.Predicted_Revenue = _conv_inr(ng_summary.get('Predicted_Revenue'))
 					ng_row.Predicted_Pickup_Revised = ng_summary.get('Predicted_Pickup_Revised')
 					ng_row.analystName = getattr(self.currParams, 'analyst_name', CONST_NA)
 					ng_row.status = getattr(self.currParams, 'status', getattr(self, 'status', CONST_NA))
 					ng_row.allocationStatus = getattr(self.currParams, 'allocationStatus', getattr(self, 'allocationStatus', CONST_NA))
+					# New columns: the rate applied and the home currency used.
+					ng_row.ConversionRate = ng_rate
+					ng_row.Currency = ng_curr
 
 					self.nextgenSummaryResults.append(ng_row)
 					try:
@@ -1972,6 +1996,27 @@ class DynAlloc:
 								'up': up_val,
 								'au': to_float(b_row.get('AU_Revised', 0.0), 0.0)
 							})
+
+						# Convert weighted-file-derived (INR) money columns into the
+						# sector home currency (INR -> home, multiply by ng_rate).
+						# Market / OAL columns (oal_b2c_min*) are already in home
+						# currency and are deliberately EXCLUDED to avoid double FX.
+						if ng_rate != 1.0:
+							inr_money_cols = [
+								'fare', 'fare_All_in',
+								'anchor_fare', 'anchor_fare_All_in',
+								'strategy_fare', 'strategy_fare_All_in',
+								'opening fare', 'opening fare_All_in',
+								'Current_Revenue', 'Expected_Revenue',
+								'Total_Expected_Revenue', 'Predicted_Revenue',
+								'RASK_Forecast', 'RPKM'
+							]
+							for _c in inr_money_cols:
+								if _c in ng_opt_df.columns:
+									ng_opt_df[_c] = pd.to_numeric(ng_opt_df[_c], errors='coerce') * ng_rate
+						# New columns: the rate applied and the home currency used.
+						ng_opt_df['ConversionRate'] = ng_rate
+						ng_opt_df['Currency'] = ng_curr
 
 						# Strictly include only the configured columns without extra columns for saving
 						inv_ordered_cols = [c for c in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if c in ng_opt_df.columns]
@@ -2924,6 +2969,42 @@ class DynAlloc:
 		# 		self.outputSummaryRow_b2c.conversionRate=conversion_rate
 				
 		return converted_value, conversion_rate
+
+	def resolve_home_conversion(self, currency):
+		"""Resolve the INR -> home-currency multiplier for a sector.
+
+		DIRECTION ASSUMPTION (documented): every fare derived from the weighted
+		file (``add_model_fare_bucket_level_weighted``) is in INR. To express it
+		in the sector's HOME currency we MULTIPLY by the ``(From='INR', To=<home>)``
+		row of ``currency_conversion`` — the same convention already used by
+		``convert_currency('INR', self.currency, value)`` on the legacy path.
+
+		Returns ``(rate: float, currency_code: str)``. Falls back to ``(1.0, 'INR')``
+		(values left in INR) whenever the currency is INR / missing / unknown or the
+		rate lookup fails, so a missing rate never crashes the pipeline.
+		"""
+		code = str(currency).strip() if currency is not None else ''
+		if code == '' or code.upper() in ('INR', 'NAN', 'NONE'):
+			return 1.0, 'INR'
+		code = code.upper()
+		try:
+			# INR -> home : multiply by ConversionRate of the (INR, home) row.
+			_, rate = self.convert_currency('INR', code, 1.0)
+			rate = float(rate)
+			if rate > 0:
+				return rate, code
+		except Exception as e:
+			self.logger.warning(f"Direct INR->{code} conversion rate missing ({e}); trying reverse row")
+		try:
+			# Fallback: use the reverse (home -> INR) row and invert it.
+			_, rev_rate = self.convert_currency(code, 'INR', 1.0)
+			rev_rate = float(rev_rate)
+			if rev_rate > 0:
+				return 1.0 / rev_rate, code
+		except Exception as e:
+			self.logger.warning(f"Reverse {code}->INR conversion rate missing ({e})")
+		self.logger.warning(f"No currency_conversion rate found for INR->{code}; leaving fares in INR (rate=1.0)")
+		return 1.0, 'INR'
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
