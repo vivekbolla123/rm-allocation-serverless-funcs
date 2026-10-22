@@ -642,7 +642,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
       2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
       3. Append sibling rows, free intermediate memory, move to next window
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change", "Payload_Restriction"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change", "Payload_Restriction", "Default_ML"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
