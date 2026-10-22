@@ -868,7 +868,7 @@ def left_join_forecast(mkt_list, forecast_df, model_map, wadd_df=None):
         suffixes=('', '_drop')
     )
 
-    # Merge the WADD (additive-model) per-flight forecast so WADD_LB sectors
+    # Merge the WADD (additive-model) per-flight forecast so WADD sectors
     # can source forecastPLF from the additive model.
     if wadd_df is not None and not wadd_df.empty:
         wadd = wadd_df.copy()
@@ -891,10 +891,11 @@ def left_join_forecast(mkt_list, forecast_df, model_map, wadd_df=None):
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
 
-    # WADD_LB sectors: substitute forecastPLF with the additive-model PLF.
-    # The original LB value is kept in forecastPLF_lb so apply_lb_forecast_switch
-    # can revert to genuine LB when the WADD forecast falls below booked PLF.
-    mkt.loc[(mkt['forecast_model'] == 'WADD_LB') & (mkt['forecastPLF_wadd'].notna()) & (mkt['forecastPLF_wadd'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_wadd']
+    # WADD sectors: substitute forecastPLF with the additive-model PLF.
+    # WADD has no fallback — apply_lb_forecast_switch only acts on ML sectors,
+    # so this value is always kept (forecastPLF_lb is preserved only for parity
+    # with the ML path and is unused for WADD).
+    mkt.loc[(mkt['forecast_model'] == 'WADD') & (mkt['forecastPLF_wadd'].notna()) & (mkt['forecastPLF_wadd'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_wadd']
 
     mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecastPLF_wadd'], inplace=True, errors='ignore')
     return mkt
@@ -1557,7 +1558,7 @@ def get_wadd_forecast(min_date, max_date):
     )
 
     if not cursor:
-        logger.info(
+        logger.warning(
             f"WADD forecast: no documents in add_model_fare_bucket_level_weighted "
             f"for {start_str} to {end_str}"
         )
@@ -1587,7 +1588,6 @@ def get_wadd_forecast(min_date, max_date):
     ).round(1)
 
     out = df[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF_wadd']]
-    logger.info(f"WADD forecast: {len(out)} flight rows resolved")
     return out
 
 def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
@@ -1631,7 +1631,7 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
     ).round(1)
 
     # Only switch for ML sectors where ML forecast < booked PLF.
-    # LB and WADD_LB sectors are unaffected (WADD_LB has no fallback — it always
+    # LB and WADD sectors are unaffected (WADD has no fallback — it always
     # uses the additive-model forecast).
     if forecast_model_col and forecast_model_col in mkt_list.columns:
         is_ml = mkt_list[forecast_model_col].astype(str).str.strip().str.upper() == 'ML'

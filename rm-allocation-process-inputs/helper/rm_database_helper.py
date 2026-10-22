@@ -341,8 +341,8 @@ class RMDatabaseHelper:
                             self.mktList['forecast_model'] = None
                             self.mktList['farecap'] = None
 
-                    # WADD_LB forecast substitution: for sectors whose forecast_model
-                    # is WADD_LB, override forecastPLF with the additive-model forecast
+                    # WADD forecast substitution: for sectors whose forecast_model
+                    # is WADD, override forecastPLF with the additive-model forecast
                     # (New Final Total Bookings / Capacity * 100) sourced from
                     # add_model_fare_bucket_level_weighted. Mirrors the production
                     # substitution done in rm-allocation-fetch-inputs.left_join_forecast.
@@ -807,7 +807,7 @@ class RMDatabaseHelper:
                 return False
 
     def _apply_wadd_forecast(self, mktList):
-        """Override forecastPLF for WADD_LB sectors with the additive-model forecast.
+        """Override forecastPLF for WADD sectors with the additive-model forecast.
 
         Source collection: ``add_model_fare_bucket_level_weighted`` (fare-bucket
         level; ``New Final Total Bookings`` is a flight-level value identical
@@ -817,7 +817,7 @@ class RMDatabaseHelper:
 
         Mirrors the production substitution in
         ``rm-allocation-fetch-inputs.left_join_forecast`` so local test runs
-        exercise the same WADD_LB behaviour. No-op when no WADD_LB rows exist
+        exercise the same WADD behaviour. No-op when no WADD rows exist
         or the collection is empty.
         """
         if mktList is None or mktList.empty:
@@ -826,7 +826,7 @@ class RMDatabaseHelper:
             return
 
         model_norm = mktList['forecast_model'].astype(str).str.strip().str.upper()
-        wadd_mask = model_norm == 'WADD_LB'
+        wadd_mask = model_norm == 'WADD'
         if not wadd_mask.any():
             return
 
@@ -899,7 +899,7 @@ class RMDatabaseHelper:
                 mktList.at[idx, 'forecastPLF'] = val
                 applied += 1
 
-        self.logger.info(f"WADD forecast applied to {applied} WADD_LB rows")
+        self.logger.info(f"WADD forecast applied to {applied} WADD rows")
 
     def format_date_to_mm_dd_yyyy(self, date_val):
         try:
