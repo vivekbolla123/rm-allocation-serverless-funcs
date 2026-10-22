@@ -180,6 +180,11 @@ class NavitaireCache:
                 A.InventoryLegID,
                 FORMAT(A.STD, 'HH:mm') AS DepartureTime,
                 COUNT(A.PassengerID) AS bookedPax,
+                COUNT(DISTINCT CASE
+                    WHEN A.BookingDateTime >= CAST(GETDATE() AS DATE)
+                    AND A.ClassOfService != 'S'
+                    THEN A.PassengerID
+                END) AS bookedToday,
                 A.AdjustedCapacity AS adjustedCapacity
             FROM
                 (
@@ -192,7 +197,9 @@ class NavitaireCache:
                         IL.FlightNumber,
                         IL.AdjustedCapacity,
                         IL.Lid,
-                        IL.STD
+                        IL.STD,
+                        PJS.ClassOfService,
+                        CAST(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) AS DATETIME) AS BookingDateTime
                     FROM
                         {self.nav_db_name}[rez].InventoryLeg IL
                         LEFT OUTER JOIN {self.nav_db_name}[rez].PassengerJourneyLeg PJL
@@ -203,6 +210,8 @@ class NavitaireCache:
                             AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL)
                         LEFT OUTER JOIN {self.nav_db_name}[rez].BookingPassenger BP
                             ON BP.PassengerID = PJS.PassengerID
+                        LEFT OUTER JOIN {self.nav_db_name}[rez].Booking B
+                            ON B.BookingID = BP.BookingID
                     WHERE
                         IL.Lid > 0
                         AND IL.Status NOT IN (2)
@@ -263,6 +272,7 @@ class NavitaireCache:
             B.DepartureDate,
             B.DepartureTime,
             B.bookedPax,
+            B.bookedToday,
             B.adjustedCapacity,
             O.ClassOfService AS OpeningRBD,
             O.ClassAU        AS OpeningRBD_ClassAU,
@@ -355,6 +365,7 @@ class NavitaireCache:
             "departure_date": departure_date,
             "departure_time_ist": self._clean_str(flight.get("DepartureTime")),
             "booked_pax": self._safe_int(flight.get("bookedPax")),
+            "booked_today": self._safe_int(flight.get("bookedToday")),
             "adjusted_capacity": self._safe_int(flight.get("adjustedCapacity")),
             "opening_rbd": opening_rbd,
             "opening_rbd_class_au": self._safe_int(flight.get("OpeningRBD_ClassAU"), None),

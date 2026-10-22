@@ -2,6 +2,9 @@
     Combined bookload + OPENING-RBD query used by the rm-allocation-scheduled-jobs
     `navitaire_cache` module (navitaireCache.py).
 
+    Also returns bookedToday: distinct pax booked today (BookingUTC converted to
+    IST), excluding ClassOfService 'S'.
+
     Opening-RBD logic (via ILC.ClassRank):
       - A class is sellable when  ClassAU > 0  AND  ClassAU - bookedPax > 0
         (bookedPax = current booked load on the flight).
@@ -43,6 +46,11 @@ INSERT INTO @B2C_RBDS (ClassOfService) VALUES
         A.InventoryLegID,
         FORMAT(A.STD, 'HH:mm') AS DepartureTime,
         COUNT(A.PassengerID) AS bookedPax,
+        COUNT(DISTINCT CASE
+            WHEN A.BookingDateTime >= CAST(GETDATE() AS DATE)
+            AND A.ClassOfService != 'S'
+            THEN A.PassengerID
+        END) AS bookedToday,
         A.AdjustedCapacity AS adjustedCapacity
     FROM
         (
@@ -55,7 +63,9 @@ INSERT INTO @B2C_RBDS (ClassOfService) VALUES
                 IL.FlightNumber,
                 IL.AdjustedCapacity,
                 IL.Lid,
-                IL.STD
+                IL.STD,
+                PJS.ClassOfService,
+                CAST(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) AS DATETIME) AS BookingDateTime
             FROM
                 [rez].InventoryLeg IL
                 LEFT OUTER JOIN [rez].PassengerJourneyLeg PJL
@@ -66,6 +76,8 @@ INSERT INTO @B2C_RBDS (ClassOfService) VALUES
                     AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL)
                 LEFT OUTER JOIN [rez].BookingPassenger BP
                     ON BP.PassengerID = PJS.PassengerID
+                LEFT OUTER JOIN [rez].Booking B
+                    ON B.BookingID = BP.BookingID
             WHERE
                 IL.Lid > 0
                 AND IL.Status NOT IN (2)
@@ -129,6 +141,7 @@ SELECT
     B.DepartureDate,
     B.DepartureTime,
     B.bookedPax,
+    B.bookedToday,
     B.adjustedCapacity,
     O.ClassOfService AS OpeningRBD,
     O.ClassAU        AS OpeningRBD_ClassAU,
