@@ -2342,13 +2342,46 @@ class DynAlloc:
 				if val not in (None, CONST_NA, 'NA'):
 					setattr(row, f_col, safe_round_fare(val))
 
-		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
+		# Region-gated B2B suppression for direct records. When the
+		# B2B_DIRECT_OUTPUT_SUMMARY_FLAG value for this record's region is
+		# false, skip inserting the B2B output-summary row for direct
+		# (non-connection) records. B2C is always inserted.
+		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c]
+		if not self._shouldSkipB2BDirectSummary(state):
+			new_summary_rows_fullalloc.append(self.outputSummaryRow_b2b)
+
 		self.allocResults.extend(new_summary_rows_fullalloc)
 		state.outputSummaryRow_b2c = self.outputSummaryRow_b2c
 		state.outputSummaryRow_b2b = self.outputSummaryRow_b2b
-		# Database insert
-		if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
-		else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
+		# Database insert — one row at a time (insertSummaryRow persists the
+		# last element of the list it receives).
+		for summary_row in new_summary_rows_fullalloc:
+			self.rmdatabasehelper.insertSummaryRow([summary_row])
+
+	def _shouldSkipB2BDirectSummary(self, state):
+		"""Return True when the B2B output-summary row should be skipped, based on the region-keyed
+		``B2B_DIRECT_OUTPUT_SUMMARY_FLAG`` constant. The flag is a JSON map like ``{"Domestic": false, "International": true}``.
+		"""
+		flag_map = self.constantsUtils.B2B_DIRECT_OUTPUT_SUMMARY_FLAG
+		if not isinstance(flag_map, dict):
+			return False
+
+		region = getattr(self.currParams, 'region', DOMESTIC_VALUE) or DOMESTIC_VALUE
+		region_enabled = flag_map.get(region)
+		# Fall back to a case-insensitive lookup if the exact key isn't present.
+		if region_enabled is None:
+			region_lower = str(region).strip().lower()
+			for key, value in flag_map.items():
+				if str(key).strip().lower() == region_lower:
+					region_enabled = value
+					break
+
+		# If region isn't configured, default to inserting (don't skip).
+		if region_enabled is None:
+			return False
+
+		# Skip B2B insertion when the flag is falsy for this region.
+		return not bool(region_enabled)
 
 		self._update_selling_fare_in_history(state)
 

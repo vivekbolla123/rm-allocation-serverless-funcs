@@ -346,7 +346,14 @@ class DetermineRBD:
 
                 # AUTOBACKSTOP LOGIC
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
-                if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
+                dplf_band_in_range = int(str(dplfBand).strip()) in (0, 1, 2)
+                forecast_below_threshold = False
+                try:
+                    if forecastAllocFlag == 1 and imp_forecast != CONST_NA and imp_forecast is not None:
+                        forecast_below_threshold = float(imp_forecast) < self.constantsutils.AUTO_BACKSTOP_FORECAST_THRESHOLD
+                except (ValueError, TypeError):
+                    forecast_below_threshold = False
+                if effective_autoBackstopFlag == "1" and (dplf_band_in_range or forecast_below_threshold):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
