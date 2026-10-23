@@ -1878,12 +1878,13 @@ public class App implements CommandLineRunner {
                 }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    // Adhoc collections are a full replacement of the user's adhoc list
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+                    bulkInsertIntoMarketList(validMarketListEntityList, tableName);
                 } else {
-                    deleteRecords(validMarketListEntityList, tableName);
+                    // Main collections: update matching rows in place, insert new ones
+                    bulkUpsertIntoMarketList(validMarketListEntityList, tableName, userName);
                 }
-
-                bulkInsertIntoMarketList(validMarketListEntityList, tableName);
 
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), uuid);
@@ -3086,12 +3087,13 @@ public class App implements CommandLineRunner {
                 }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    // Adhoc collections are a full replacement of the user's adhoc list
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+                    bulkInsertIntoMarketListConnections(validMarketListConnectionsEntityList, tableName);
                 } else {
-                    deleteSpecificConnectionRecords(validMarketListConnectionsEntityList, tableName);
+                    // Main collection: update matching rows in place, insert new ones
+                    bulkUpsertIntoMarketListConnections(validMarketListConnectionsEntityList, tableName, userName);
                 }
-
-                bulkInsertIntoMarketListConnections(validMarketListConnectionsEntityList, tableName);
 
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, auditUuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), auditUuid);
@@ -3121,15 +3123,15 @@ public class App implements CommandLineRunner {
     }
 
 
-    private void deleteSpecificConnectionRecords(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
-                                                 String collectionName) {
-        batchedDelete(marketListConnectionsEntityList, collectionName, entity -> and(
+    /** Business key of a market_list_connections row: Sector1 + Flight1 + Sector2 + Flight2 + PerStart. */
+    private static Bson connectionKeyFilter(MarketListConnectionsEntity entity) {
+        return and(
                 eq("Sector1", entity.getSector1()),
                 eq("Flight1", Integer.parseInt(entity.getFlight1())),
                 eq("Sector2", entity.getSector2()),
                 eq("Flight2", Integer.parseInt(entity.getFlight2())),
                 eq("PerStart", entity.getStartDate())
-        ), "MarketListConnections");
+        );
     }
 
 
@@ -4275,7 +4277,6 @@ public class App implements CommandLineRunner {
      * (~50 fields × ~40 bytes × 5000 ≈ 10 MB — safe margin).
      */
     private static final int BULK_INSERT_BATCH_SIZE = 5000;
-    private static final int DELETE_BATCH_SIZE = 5000;
     private static final int LOG_EVERY_N_RECORDS = 50000;
 
     public void bulkInsertIntoMarketList(List<MarketListEntity> entities, String collectionName) {
@@ -4448,53 +4449,6 @@ public class App implements CommandLineRunner {
     }
 
     /**
-     * Generic batched delete: builds $or filters in batches using the provided
-     * filterBuilder function, then issues one deleteMany per batch.
-     */
-    private <T> void batchedDelete(List<T> entities, String collectionName,
-                                   Function<T, Bson> filterBuilder, String label) {
-        if (entities == null || entities.isEmpty()) {
-            return;
-        }
-
-        try {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
-
-            int totalRecords = entities.size();
-            int totalBatches = (int) Math.ceil((double) totalRecords / DELETE_BATCH_SIZE);
-            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / DELETE_BATCH_SIZE);
-            long totalDeleted = 0;
-
-            for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-                int fromIndex = batchIdx * DELETE_BATCH_SIZE;
-                int toIndex = Math.min(fromIndex + DELETE_BATCH_SIZE, totalRecords);
-                List<T> batch = entities.subList(fromIndex, toIndex);
-
-                List<Bson> orConditions = new ArrayList<>(batch.size());
-                for (T entity : batch) {
-                    orConditions.add(filterBuilder.apply(entity));
-                }
-
-                Bson filter = or(orConditions);
-                DeleteResult result = collection.deleteMany(filter);
-                totalDeleted += result.getDeletedCount();
-
-                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
-                    log.info("{} delete progress {}/{} batches, {} deleted so far", label, batchIdx + 1, totalBatches, totalDeleted);
-                }
-            }
-
-            log.info("Total deleted {} {} records from {}", totalDeleted, label, collectionName);
-
-        } catch (Exception e) {
-            error_occurred.set(1);
-            String errorMsg = "Failed to batch-delete " + label + " records: " + e.getMessage();
-            log.error(errorMsg);
-            listOfErrors.get().add(errorMsg);
-        }
-    }
-
-    /**
      * Generic batched insert: converts entities to Documents in batches using the
      * provided documentBuilder function, then issues one insertMany per batch.
      */
@@ -4538,21 +4492,107 @@ public class App implements CommandLineRunner {
         }
     }
 
-    private void deleteRecords(List<MarketListEntity> marketListEntityList, String tableName) {
-        batchedDelete(marketListEntityList, tableName, entity -> {
-            Object flightNumber;
-            try {
-                flightNumber = Integer.parseInt(entity.getFlightNo());
-            } catch (NumberFormatException e) {
-                flightNumber = entity.getFlightNo();
+    /** Business key of a market_list / market_list_international row: Origin + Destin + PerStart + FlightNumber. */
+    private static Bson marketListKeyFilter(MarketListEntity entity) {
+        Object flightNumber;
+        try {
+            flightNumber = Integer.parseInt(entity.getFlightNo());
+        } catch (NumberFormatException e) {
+            flightNumber = entity.getFlightNo();
+        }
+        return and(
+                eq("Origin", entity.getOrigin()),
+                eq("Destin", entity.getDestination()),
+                eq("PerStart", entity.getStartDate()),
+                eq("FlightNumber", flightNumber)
+        );
+    }
+
+    /**
+     * Upserts market list rows keyed on Origin + Destin + PerStart + FlightNumber.
+     * Existing rows are updated in place; rows that don't exist yet are inserted.
+     * Every written row is stamped with the change-stream audit fields (main collections only, never adhoc).
+     */
+    public void bulkUpsertIntoMarketList(List<MarketListEntity> entities, String collectionName, String userName) {
+        Date now = new Date();
+        batchedUpsert(entities, collectionName, App::marketListKeyFilter,
+                e -> marketListEntityToDocument(e, now), now, userName, "MarketList");
+    }
+
+    /**
+     * Upserts market list connection rows keyed on Sector1 + Flight1 + Sector2 + Flight2 + PerStart.
+     * Existing rows are updated in place; rows that don't exist yet are inserted.
+     * Every written row is stamped with the change-stream audit fields (main collections only, never adhoc).
+     */
+    public void bulkUpsertIntoMarketListConnections(List<MarketListConnectionsEntity> entities, String collectionName,
+                                                    String userName) {
+        Date now = new Date();
+        batchedUpsert(entities, collectionName, App::connectionKeyFilter,
+                e -> connectionEntityToDocument(e, now), now, userName, "MarketListConnections");
+    }
+
+    /**
+     * Generic batched upsert: for each entity issues
+     * updateOne(filter, {$set: fields + audit fields, $setOnInsert: createdAt}, upsert=true),
+     * grouped into unordered bulkWrite batches.
+     * createdAt is preserved on existing documents and only set on insert.
+     * lastChangedBy / lastChangedAt / lastChangeSource are set on every write.
+     */
+    private <T> void batchedUpsert(List<T> entities, String collectionName,
+                                   Function<T, Bson> filterBuilder,
+                                   Function<T, Document> documentBuilder,
+                                   Date now, String changedBy, String label) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            UpdateOptions upsertOptions = new UpdateOptions().upsert(true);
+            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+
+            int totalRecords = entities.size();
+            int totalBatches = (int) Math.ceil((double) totalRecords / BULK_INSERT_BATCH_SIZE);
+            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / BULK_INSERT_BATCH_SIZE);
+            long totalMatched = 0;
+            long totalModified = 0;
+            long totalUpserted = 0;
+
+            for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                int fromIndex = batchIdx * BULK_INSERT_BATCH_SIZE;
+                int toIndex = Math.min(fromIndex + BULK_INSERT_BATCH_SIZE, totalRecords);
+                List<T> batch = entities.subList(fromIndex, toIndex);
+
+                List<WriteModel<Document>> ops = new ArrayList<>(batch.size());
+                for (T entity : batch) {
+                    Document fields = documentBuilder.apply(entity);
+                    fields.remove("createdAt");
+                    fields.append(AUDIT_LAST_CHANGED_BY, changedBy)
+                            .append(AUDIT_LAST_CHANGED_AT, now)
+                            .append(AUDIT_LAST_CHANGE_SOURCE, AUDIT_SOURCE_UPLOAD);
+                    Document update = new Document("$set", fields)
+                            .append("$setOnInsert", new Document("createdAt", now));
+                    ops.add(new UpdateOneModel<>(filterBuilder.apply(entity), update, upsertOptions));
+                }
+
+                BulkWriteResult result = collection.bulkWrite(ops, bulkOptions);
+                totalMatched += result.getMatchedCount();
+                totalModified += result.getModifiedCount();
+                totalUpserted += result.getUpserts().size();
+
+                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
+                    log.info("{} upsert progress {}/{} batches, {} matched, {} modified, {} inserted so far",
+                            label, batchIdx + 1, totalBatches, totalMatched, totalModified, totalUpserted);
+                }
             }
-            return and(
-                    eq("Origin", entity.getOrigin()),
-                    eq("Destin", entity.getDestination()),
-                    eq("PerStart", entity.getStartDate()),
-                    eq("FlightNumber", flightNumber)
-            );
-        }, "MarketList");
+
+            log.info("Upserted {} {} records into {}: {} matched, {} modified, {} inserted",
+                    totalRecords, label, collectionName, totalMatched, totalModified, totalUpserted);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Bulk upsert of {} into {} failed: {}", label, collectionName, e.getMessage());
+            listOfErrors.get().add("Failed to bulk upsert " + label + " records: " + e.getMessage());
+        }
     }
 
     public List<Map<String, Object>> searchMarketList(MarketListEntity marketListEntity, String collectionName) {

@@ -12,6 +12,7 @@ import uuid
 import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
+from helpers.market_list_audit import audit_fields, utc_now, AUDITED_COLLECTIONS, SYSTEM_USER, SOURCE_DEFAULT
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -838,6 +839,12 @@ class defaultMarketlist:
                 
                 records.append(record)
             
+            # Stamp audit fields (main collections only, never adhoc)
+            if collection_name in AUDITED_COLLECTIONS:
+                stamp = audit_fields(SYSTEM_USER, SOURCE_DEFAULT, utc_now())
+                for record in records:
+                    record.update(stamp)
+
             # Bulk insert
             if records:
                 result = collection.insert_many(records)

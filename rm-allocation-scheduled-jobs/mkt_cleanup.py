@@ -4,6 +4,7 @@ from constants_utils import ConstantsUtils
 import pandas as pd
 import configsettings
 import json
+from helpers.market_list_audit import stamp_and_delete, utc_now, SYSTEM_USER, SOURCE_CLEANUP
 
 
 class MarketListCleanup:
@@ -154,10 +155,11 @@ class MarketListCleanup:
                 if flight_key not in nav_keys:
                     ids_to_delete.append(doc['_id'])
 
-            deleted_count = 0
-            if ids_to_delete:
-                result = collection.delete_many({'_id': {'$in': ids_to_delete}})
-                deleted_count = result.deleted_count
+            # Transactional stamp (_deleted + audit fields) then delete, in batches
+            deleted_count = stamp_and_delete(
+                collection, ids_to_delete,
+                changed_by=SYSTEM_USER, change_source=SOURCE_CLEANUP, changed_at=utc_now()
+            )
 
             self.logger.info(
                 f"{collection_name}: checked {total_checked} docs, "
@@ -207,10 +209,11 @@ class MarketListCleanup:
                 if conn_key not in conn_keys:
                     ids_to_delete.append(doc['_id'])
 
-            deleted_count = 0
-            if ids_to_delete:
-                result = collection.delete_many({'_id': {'$in': ids_to_delete}})
-                deleted_count = result.deleted_count
+            # Transactional stamp (_deleted + audit fields) then delete, in batches
+            deleted_count = stamp_and_delete(
+                collection, ids_to_delete,
+                changed_by=SYSTEM_USER, change_source=SOURCE_CLEANUP, changed_at=utc_now()
+            )
 
             self.logger.info(
                 f"{collection_name}: checked {total_checked} docs, "

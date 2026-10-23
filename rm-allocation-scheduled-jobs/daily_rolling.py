@@ -3,8 +3,13 @@ import uuid
 import pandas as pd
 import pytz
 import configsettings
+from helpers.market_list_audit import stamp_and_delete, utc_now, SYSTEM_USER, SOURCE_ROLLING
 
 class DailyRolling:
+    # Collections purged of expired single-day market list rows
+    TARGET_COLLECTIONS = ['market_list', 'market_list_international', 'market_list_connections']
+    PERIOD_DATE_FORMAT = '%m/%d/%Y'
+
     def __init__(self, logger, params, overrides, context):
         self.context = context
         self.logger = logger
@@ -14,161 +19,78 @@ class DailyRolling:
         self.nav_conn = params['navconn']  # Keep NAV SQL connection
 
     def run(self):
+        """Delete expired single-day records (see should_delete_record) from each market list collection.
+
+        Only the matching documents are deleted; all other documents are left untouched.
+        """
         self.logger.info("Starting the run method.")
-        df_market_list = self.fetch_market_list()
-        df_market_list_int = self.fetch_market_list_int()
-        df_market_list_conn = self.fetch_market_list_conn()
-        df_sector_map = self.fetch_sector_map()
         current_date = self.get_current_date_ist()
         self.logger.info(f"Current date: {current_date}")
-        print(len(df_market_list))
-        df_market_list = self.process_market_list(df_market_list, df_sector_map, current_date)
-        df_market_list_int = self.process_market_list(df_market_list_int, df_sector_map, current_date)
-        df_market_list_conn = self.process_market_list(df_market_list_conn, df_sector_map, current_date)
-        
-        print(len(df_market_list))
-        # df_market_list=self.create_new_row(df_market_list,current_date,df_sector_map)
-        print(len(df_market_list))
-        self.logger.info("Writing modified DataFrame back to the database.")
-        
-        # Replace TRUNCATE and to_sql with MongoDB operations
-        self._replace_collection('market_list', df_market_list)
-        self._replace_collection('market_list_international', df_market_list_int)
-        self._replace_collection('market_list_connections', df_market_list_conn)
 
-    def _replace_collection(self, collection_name, df):
-        """
-        Replace entire collection with new data (equivalent to TRUNCATE + INSERT).
-        
-        Args:
-            collection_name: Name of MongoDB collection
-            df: DataFrame to write
+        results = {}
+        for collection_name in self.TARGET_COLLECTIONS:
+            results[collection_name] = self.delete_expired_records(collection_name, current_date)
+
+        self.logger.info(f"Daily rolling complete: {results}")
+        return results
+
+    def delete_expired_records(self, collection_name, current_date):
+        """Find documents matching should_delete_record and delete them by _id in batches.
+
+        Documents whose PerStart/PerEnd cannot be parsed are skipped (never deleted).
         """
         try:
             collection = self.db[collection_name]
-            
-            # Delete all documents (equivalent to TRUNCATE)
-            delete_result = collection.delete_many({})
-            self.logger.info(f"Deleted {delete_result.deleted_count} documents from {collection_name}")
-            
-            # Insert new documents
-            if not df.empty:
-                if 'createdAt' not in df.columns:
-                    df['createdAt'] = pd.Timestamp.now()
-                else:
-                    # Fill any NaT values in existing created_at column with current datetime
-                    df['createdAt'] = df['createdAt'].fillna(pd.Timestamp.now())
-                
-                # Replace any remaining NaT values in other columns with None
-                df = df.replace({pd.NaT: None})
-                
-                # Convert DataFrame to list of dictionaries
-                records = df.to_dict('records')
-                
-                # Convert date columns to datetime objects if needed
-                # for record in records:
-                #     for key, value in record.items():
-                #         # Handle date strings
-                #         if isinstance(value, str) and '/' in value:
-                #             try:
-                #                 record[key] = datetime.strptime(value, '%m/%d/%Y')
-                #             except:
-                #                 pass  # Keep as string if not a date
-                
-                insert_result = collection.insert_many(records)
-                self.logger.info(f"Inserted {len(insert_result.inserted_ids)} documents into {collection_name}")
-            else:
-                self.logger.info(f"No records to insert into {collection_name}")
-                
+            cursor = collection.find({}, {'_id': 1, 'PerStart': 1, 'PerEnd': 1})
+
+            ids_to_delete = []
+            total_checked = 0
+            unparseable = 0
+            for doc in cursor:
+                total_checked += 1
+                start_date = self._parse_period_date(doc.get('PerStart'))
+                end_date = self._parse_period_date(doc.get('PerEnd'))
+                if start_date is None or end_date is None:
+                    unparseable += 1
+                    continue
+                if self.should_delete_record(start_date, end_date, current_date):
+                    ids_to_delete.append(doc['_id'])
+
+            if unparseable:
+                self.logger.warning(
+                    f"{collection_name}: skipped {unparseable} documents with missing/invalid PerStart or PerEnd"
+                )
+
+            # Transactional stamp (_deleted + audit fields) then delete, in batches
+            deleted_count = stamp_and_delete(
+                collection, ids_to_delete,
+                changed_by=SYSTEM_USER, change_source=SOURCE_ROLLING, changed_at=utc_now()
+            )
+
+            self.logger.info(
+                f"{collection_name}: checked {total_checked}, deleted {deleted_count} expired single-day records"
+            )
+            return {'checked': total_checked, 'deleted': deleted_count, 'skipped_unparseable': unparseable}
+
         except Exception as e:
-            self.logger.error(f"Error replacing collection {collection_name}: {e}")
+            self.logger.error(f"Error deleting expired records from {collection_name}: {e}")
             raise
+
+    def _parse_period_date(self, value):
+        """Parse a PerStart/PerEnd value (mm/dd/yyyy string or datetime) into a date. Returns None if invalid."""
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, str):
+            try:
+                return datetime.strptime(value.strip(), self.PERIOD_DATE_FORMAT).date()
+            except ValueError:
+                return None
+        return None
 
     def get_current_date_ist(self):
         local_tz = pytz.timezone('Asia/Kolkata')  # IST timezone
         local_datetime = datetime.now(local_tz)
         return local_datetime.date()
-    
-    def fetch_market_list(self):
-        """Fetch all documents from market_list collection."""
-        try:
-            collection = self.db['market_list']
-            self.logger.info("Fetching data from market_list collection")
-            
-            cursor = collection.find({})
-            df_market_list = pd.DataFrame(list(cursor))
-            
-            # Remove MongoDB _id field if present
-            if '_id' in df_market_list.columns:
-                df_market_list = df_market_list.drop('_id', axis=1)
-            
-            # Convert datetime fields back to string format if they were stored as datetime
-            for col in ['PerStart', 'PerEnd']:
-                if col in df_market_list.columns:
-                    df_market_list[col] = df_market_list[col].apply(
-                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
-                    )
-            
-            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list")
-            return df_market_list
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching market_list: {e}")
-            return pd.DataFrame()
-    
-    def fetch_market_list_int(self):
-        """Fetch all documents from market_list_international collection."""
-        try:
-            collection = self.db['market_list_international']
-            self.logger.info("Fetching data from market_list_international collection")
-            
-            cursor = collection.find({})
-            df_market_list = pd.DataFrame(list(cursor))
-            
-            # Remove MongoDB _id field if present
-            if '_id' in df_market_list.columns:
-                df_market_list = df_market_list.drop('_id', axis=1)
-            
-            # Convert datetime fields back to string format
-            for col in ['PerStart', 'PerEnd']:
-                if col in df_market_list.columns:
-                    df_market_list[col] = df_market_list[col].apply(
-                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
-                    )
-            
-            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list_international")
-            return df_market_list
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching market_list_international: {e}")
-            return pd.DataFrame()
-    
-    def fetch_market_list_conn(self):
-        """Fetch all documents from market_list_connections collection."""
-        try:
-            collection = self.db['market_list_connections']
-            self.logger.info("Fetching data from market_list_connections collection")
-            
-            cursor = collection.find({})
-            df_market_list = pd.DataFrame(list(cursor))
-            
-            # Remove MongoDB _id field if present
-            if '_id' in df_market_list.columns:
-                df_market_list = df_market_list.drop('_id', axis=1)
-            
-            # Convert datetime fields back to string format
-            for col in ['PerStart', 'PerEnd']:
-                if col in df_market_list.columns:
-                    df_market_list[col] = df_market_list[col].apply(
-                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
-                    )
-            
-            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list_connections")
-            return df_market_list
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching market_list_connections: {e}")
-            return pd.DataFrame()
 
     def fetch_sector_map(self):
         """Fetch all documents from config_user_sector_map collection."""
@@ -189,26 +111,6 @@ class DailyRolling:
         except Exception as e:
             self.logger.error(f"Error fetching config_user_sector_map: {e}")
             return pd.DataFrame()
-
-    def process_market_list(self, df_market_list, df_sector_map, current_date):
-        new_rows = []
-        for index, row in df_market_list.iterrows():
-            start_date = datetime.strptime(row['PerStart'], '%m/%d/%Y').date()
-            end_date = datetime.strptime(row['PerEnd'], '%m/%d/%Y').date()
-            
-            if self.should_delete_record(start_date, end_date, current_date):
-                self.logger.info(f"Deleting record with index: {index}")
-                df_market_list.drop(index, inplace=True)
-            # elif self.should_update_record(start_date, end_date, current_date):
-            #     df_market_list, new_rows = self.update_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
-            # else:
-            #     df_market_list, new_rows = self.split_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
-
-        # if new_rows:
-        #     df_market_list = df_market_list.append(new_rows, ignore_index=True)
-        #     self.logger.info(f"Appended new rows: {new_rows}")
-
-        return df_market_list
 
     def should_delete_record(self, start_date, end_date, current_date):
         c1 = (start_date < current_date and end_date < current_date)

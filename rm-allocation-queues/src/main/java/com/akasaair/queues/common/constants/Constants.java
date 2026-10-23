@@ -52,6 +52,11 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final String AUDIT_KEY_DELIMITER = "|";
     public static final String AUDIT_EMPTY_IDENTIFIER = "<N>";
     public static final String CHANGE_TYPE_MARKETLIST = "ML";
+    // Change-stream audit fields stamped on every write to the main market list collections (not adhoc)
+    public static final String AUDIT_LAST_CHANGED_BY = "lastChangedBy";
+    public static final String AUDIT_LAST_CHANGED_AT = "lastChangedAt";
+    public static final String AUDIT_LAST_CHANGE_SOURCE = "lastChangeSource";
+    public static final String AUDIT_SOURCE_UPLOAD = "upload";
     public static Map<String, String> STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
     public static Map<String, String> FORECAST_STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
 //    public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");
