@@ -21,11 +21,11 @@ public class ForecastAllocationValidator {
             "strategy", "profile", "lsf", "fare", "last", "sold", "selling", "x",
             // New Change Notes – 3 abbreviations
             "maxown", "max_own", "own", "imputedforecast", "imputed", "forecast",
-            "interpolate", "interpolate_1", "interpolate_2", "interpolate1", "interpolate2"
+            "interpolate", "interpolate_1", "interpolate1"
     ));
     private static final List<String> CANONICAL_FORMULA_TOKENS = Arrays.asList(
             "Strategy", "Profile", "LSF", "Highest", "Middle", "Lowest", "Max", "Min", "Average", "Median",
-            "MaxOwn", "ImputedForecast", "Interpolate_1", "Interpolate_2"
+            "MaxOwn", "ImputedForecast", "Interpolate_1"
     );
 
     // Allow underscores so tokens like Interpolate_1 / Max_Own validate cleanly.

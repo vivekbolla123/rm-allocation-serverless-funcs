@@ -185,9 +185,9 @@ public class ForecastAllocationValidatorTest {
         csvData.add(new ArrayList<>(Arrays.asList("1", "Stable", "Min(Strategy, MaxOwn)", "Band 1 Stable")));
         csvData.add(new ArrayList<>(Arrays.asList("1", "Decreasing", "Min(Strategy, MaxOwn)", "Band 1 Decreasing")));
 
-        csvData.add(new ArrayList<>(Arrays.asList("2", "Increasing", "Interpolate_2(MaxOwn, Strategy)", "Band 2 Increasing")));
-        csvData.add(new ArrayList<>(Arrays.asList("2", "Stable", "Interpolate_2(MaxOwn, Strategy)", "Band 2 Stable")));
-        csvData.add(new ArrayList<>(Arrays.asList("2", "Decreasing", "Interpolate_2(MaxOwn, Strategy)", "Band 2 Decreasing")));
+        csvData.add(new ArrayList<>(Arrays.asList("2", "Increasing", "Interpolate_1(MaxOwn, Strategy)", "Band 2 Increasing")));
+        csvData.add(new ArrayList<>(Arrays.asList("2", "Stable", "Interpolate_1(MaxOwn, Strategy)", "Band 2 Stable")));
+        csvData.add(new ArrayList<>(Arrays.asList("2", "Decreasing", "Interpolate_1(MaxOwn, Strategy)", "Band 2 Decreasing")));
 
         csvData.add(new ArrayList<>(Arrays.asList("3", "Increasing", "Interpolate_1(MaxOwn, Strategy)", "Band 3 Increasing")));
         csvData.add(new ArrayList<>(Arrays.asList("3", "Stable", "Interpolate_1(MaxOwn, Strategy)", "Band 3 Stable")));

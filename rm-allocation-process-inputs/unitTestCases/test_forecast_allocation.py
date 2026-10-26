@@ -132,25 +132,18 @@ class TestFormulaEvaluator(unittest.TestCase):
         self.assertAlmostEqual(res, 3990.0, places=2)
 
     def test_interpolate_1(self):
-        # Interpolate_1 = MaxOwn + ((Strategy - MaxOwn)/0.85) * (ImputedForecast/100 + 0.85)
+        # Interpolate_1 = MaxOwn + ((Strategy - MaxOwn)/0.08) * (ImputedForecast/100 - 0.80)
         # MaxOwn=4000, Strategy=5000, ImputedForecast=86 -> 0.86
-        # 4000 + ((1000)/0.85) * (0.86 + 0.85) = 4000 + 1176.4706 * 1.71 = 4000 + 2011.76 = 6011.76
+        # 4000 + (1000/0.08) * (0.86 - 0.80) = 4000 + 12500 * 0.06 = 4000 + 750 = 4750
         vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 86.0}
         res = self.evaluator.evaluate("Interpolate_1(MaxOwn, Strategy)", vars_dict)
-        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.85) * (0.86 + 0.85), places=2)
-
-    def test_interpolate_2(self):
-        # Interpolate_2 = MaxOwn + ((Strategy - MaxOwn)/0.80) * (ImputedForecast/100 + 0.80)
-        # MaxOwn=4000, Strategy=5000, ImputedForecast=82 -> 0.82
-        vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 82.0}
-        res = self.evaluator.evaluate("Interpolate_2(MaxOwn, Strategy)", vars_dict)
-        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.80) * (0.82 + 0.80), places=2)
+        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.08) * (0.86 - 0.80), places=2)
 
     def test_interpolate_accepts_fraction_imputed_forecast(self):
         # ImputedForecast already provided as a fraction (0.86) must behave identically.
         vars_dict = {"MaxOwn": 4000.0, "Strategy": 5000.0, "ImputedForecast": 0.86}
         res = self.evaluator.evaluate("Interpolate_1(MaxOwn, Strategy)", vars_dict)
-        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.85) * (0.86 + 0.85), places=2)
+        self.assertAlmostEqual(res, 4000.0 + (1000.0 / 0.08) * (0.86 - 0.80), places=2)
 
     def test_maxown_and_leading_scalar_multiplier(self):
         # 1.05 * Max(LSF, Average(Highest, Middle))
@@ -424,26 +417,32 @@ class TestForecastAllocationLogic(unittest.TestCase):
         self.assertIn("AllocationY_Band6_Increasing_UpsellY", result["how_determined"])
         self.assertIn("1.05*Max(LSF,Average(Highest,Middle))", result["how_determined"])
 
-    def test_calculate_anchor_max_own_capped_below_strategy(self):
-        # Max Own = Max(Profile, Last 3), capped below Strategy.
-        # Profile=4600, Last3=4400, Strategy=4500 -> Max(4600,4400)=4600 capped to 4500.
+    def test_compute_max_own_rule(self):
+        # Max Own = highest own fare (Last 3, Profile) that is <= Strategy;
+        # if none are lower, Strategy becomes Max Own.
+        # (Last3, Profile, Strategy) -> expected
+        self.assertAlmostEqual(self.logic.compute_max_own(5000.0, 4000.0, 3000.0), 4000.0, places=2)
+        self.assertAlmostEqual(self.logic.compute_max_own(5000.0, 4000.0, 6000.0), 4000.0, places=2)
+        self.assertAlmostEqual(self.logic.compute_max_own(5000.0, 6000.0, 6000.0), 5000.0, places=2)
+
+    def test_calculate_anchor_max_own_excludes_fares_above_strategy(self):
+        # Profile=4600 (> Strategy), Last3=4400 (<= Strategy), Strategy=4500
+        # Eligible own fares <= 4500 -> {4400} -> Max Own = 4400.
         history = [{"run_count": i, "actual_imp_forecast": 83.0} for i in range(1, 5)]
         result = self.logic.calculate_anchor(
             strategyFare=4500.0,
             profileFare=4600.0,
             lastSoldFare=4400.0,
-            imp_forecast=83.0,   # Band 2 -> Interpolate_2(MaxOwn, Strategy)
+            imp_forecast=83.0,   # Band 2 -> Interpolate_1(MaxOwn, Strategy)
             BookingsInHour=0,
             history=history,
             last3Fare=4400.0,
             last7Fare=4300.0,
         )
         self.assertEqual(result["band"], 2)
-        self.assertAlmostEqual(result["max_own_fare"], 4500.0, places=2)
-        # MaxOwn == Strategy -> Interpolate_2 collapses to Strategy regardless of divisor.
-        self.assertAlmostEqual(result["anchor_fare"], 4500.0, places=2)
+        self.assertAlmostEqual(result["max_own_fare"], 4400.0, places=2)
         self.assertIn("AllocationY_Band2_", result["how_determined"])
-        self.assertIn("Interpolate_2(MaxOwn,Strategy)", result["how_determined"])
+        self.assertIn("Interpolate_1(MaxOwn,Strategy)", result["how_determined"])
 
     def test_all_21_grid_combinations(self):
         """Verify each of the 21 combinations in the seven-band grid with explicit inputs."""
@@ -451,14 +450,18 @@ class TestForecastAllocationLogic(unittest.TestCase):
         #   Strategy = 4000, Profile = 4200, Last3 = 4100, Last7 = 4050
         #   LSF = Max(Last3, Last7) = 4100
         #   Potential fares: [4000, 4200, 4100] -> Highest = 4200, Middle = 4100, Lowest = 4000
-        #   MaxOwn = Max(Profile, Last3) = 4200, capped below Strategy (4000) -> 4000
+        #   MaxOwn = highest own fare (Profile=4200, Last3=4100) that is <= Strategy (4000);
+        #           none qualify, so Strategy becomes Max Own -> 4000
         STRAT, PROF, LAST3, LAST7 = 4000.0, 4200.0, 4100.0, 4050.0
         LSF = max(LAST3, LAST7)          # 4100
         HIGH, MID, LOW = 4200.0, 4100.0, 4000.0
-        MAXOWN = min(max(PROF, LAST3), STRAT)  # 4000
+        _eligible_own = [f for f in (PROF, LAST3) if f <= STRAT]
+        MAXOWN = max(_eligible_own) if _eligible_own else STRAT  # 4000
 
-        def interp(divisor, imp):
-            return MAXOWN + ((STRAT - MAXOWN) / divisor) * (imp / 100.0 + divisor)
+        # Interpolate_1 = MaxOwn + ((Strategy - MaxOwn)/0.08) * (ImputedForecast/100 - 0.80).
+        # With MaxOwn == Strategy here, the (Strategy - MaxOwn) term is 0 so it collapses to MaxOwn.
+        def interp(imp):
+            return MAXOWN + ((STRAT - MAXOWN) / 0.08) * (imp / 100.0 - 0.80)
 
         # Imputed forecast used per band so resolve_band would also agree (band_override still set).
         band_imp = {7: 101.0, 6: 97.0, 5: 93.0, 4: 90.0, 3: 86.0, 2: 82.0, 1: 75.0}
@@ -481,13 +484,13 @@ class TestForecastAllocationLogic(unittest.TestCase):
             (4, "Stable", min(LSF, 0.30 * HIGH + 0.70 * MID)),
             (4, "Decreasing", min(LSF, 0.60 * LSF + 0.40 * STRAT)),
             # Band 3 -> Interpolate_1(MaxOwn, Strategy); MaxOwn==Strategy so collapses to Strategy
-            (3, "Increasing", interp(0.85, band_imp[3])),
-            (3, "Stable", interp(0.85, band_imp[3])),
-            (3, "Decreasing", interp(0.85, band_imp[3])),
-            # Band 2 -> Interpolate_2(MaxOwn, Strategy)
-            (2, "Increasing", interp(0.80, band_imp[2])),
-            (2, "Stable", interp(0.80, band_imp[2])),
-            (2, "Decreasing", interp(0.80, band_imp[2])),
+            (3, "Increasing", interp(band_imp[3])),
+            (3, "Stable", interp(band_imp[3])),
+            (3, "Decreasing", interp(band_imp[3])),
+            # Band 2 -> Interpolate_1(MaxOwn, Strategy)
+            (2, "Increasing", interp(band_imp[2])),
+            (2, "Stable", interp(band_imp[2])),
+            (2, "Decreasing", interp(band_imp[2])),
             # Band 1 -> Min(Strategy, MaxOwn)
             (1, "Increasing", min(STRAT, MAXOWN)),
             (1, "Stable", min(STRAT, MAXOWN)),

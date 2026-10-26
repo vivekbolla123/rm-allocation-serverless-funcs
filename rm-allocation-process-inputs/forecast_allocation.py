@@ -22,11 +22,11 @@ except ImportError:
     PLF_CHANGE_N_RUNS = 4
     LSF_FALLBACK_N_RUNS = 4
 
-# Interpolation divisors used by the Interpolate_1 / Interpolate_2 abbreviations.
-# Interpolate_n Anchor = MaxOwn + ((Strategy - MaxOwn) / divisor) * (ImputedForecast + divisor)
+# Interpolation parameters used by the Interpolate_1 abbreviation.
+# Interpolate_1 Anchor = MaxOwn + ((Strategy - MaxOwn) / divisor) * (ImputedForecast - offset)
 # (ImputedForecast is expressed as a fraction, e.g. 0.85 for an 85% imputed PLF.)
-INTERPOLATE_1_DIVISOR = 0.85
-INTERPOLATE_2_DIVISOR = 0.80
+INTERPOLATE_1_DIVISOR = 0.08
+INTERPOLATE_1_OFFSET = 0.80
 
 # Abbreviations understood inside grid formulas. Variables resolve to numeric fares;
 # functions aggregate/transform their arguments. Keep this in sync with the Java
@@ -41,15 +41,14 @@ FORMULA_ABBREVIATIONS = {
     "Highest": "Highest potential fare",
     "Middle": "Middle potential fare",
     "Lowest": "Lowest potential fare",
-    "MaxOwn": "Max Own fare = Max(Profile, Last 3), capped below Strategy",
+    "MaxOwn": "Max Own fare = highest of (Last 3, Profile) that is <= Strategy, else Strategy",
     "ImputedForecast": "Imputed forecast PLF",
     # Functions
     "Max": "Maximum of arguments",
     "Min": "Minimum of arguments",
     "Average": "Mean of arguments",
     "Median": "Median of arguments",
-    "Interpolate_1": "MaxOwn + ((Strategy - MaxOwn)/0.85) * (ImputedForecast + 0.85)",
-    "Interpolate_2": "MaxOwn + ((Strategy - MaxOwn)/0.80) * (ImputedForecast + 0.80)",
+    "Interpolate_1": "MaxOwn + ((Strategy - MaxOwn)/0.08) * (ImputedForecast - 0.80)",
 }
 
 
@@ -72,14 +71,14 @@ DEFAULT_GRID_RULES = {
     (4, "Increasing"): "Max(LSF, 0.70*LSF + 0.30*Highest)",
     (4, "Stable"): "Min(LSF, 0.30*Highest + 0.70*Middle)",
     (4, "Decreasing"): "Min(LSF, 0.60*LSF + 0.40*Strategy)",
-    # Band 3 (85-88%)
+    # Band 3 (85-88%) -> Interpolate_1
     (3, "Increasing"): "Interpolate_1(MaxOwn, Strategy)",
     (3, "Stable"): "Interpolate_1(MaxOwn, Strategy)",
     (3, "Decreasing"): "Interpolate_1(MaxOwn, Strategy)",
-    # Band 2 (80-85%)
-    (2, "Increasing"): "Interpolate_2(MaxOwn, Strategy)",
-    (2, "Stable"): "Interpolate_2(MaxOwn, Strategy)",
-    (2, "Decreasing"): "Interpolate_2(MaxOwn, Strategy)",
+    # Band 2 (80-85%) -> Interpolate_1
+    (2, "Increasing"): "Interpolate_1(MaxOwn, Strategy)",
+    (2, "Stable"): "Interpolate_1(MaxOwn, Strategy)",
+    (2, "Decreasing"): "Interpolate_1(MaxOwn, Strategy)",
     # Band 1 (<80%)
     (1, "Increasing"): "Min(Strategy, MaxOwn)",
     (1, "Stable"): "Min(Strategy, MaxOwn)",
@@ -129,7 +128,6 @@ class FormulaEvaluator:
             (r"\bmax\s*own\b", "MaxOwn"),
             (r"\bimputed\s*forecast\b", "ImputedForecast"),
             (r"\binterpolate[_\s]*1\b", "Interpolate_1"),
-            (r"\binterpolate[_\s]*2\b", "Interpolate_2"),
             (r"\bstrategy\s+fare\b", "Strategy"),
             (r"\bprofile\s+fare\b", "Profile"),
             (r"\blast\s+3\s+fare\b", "Last3"),
@@ -254,9 +252,7 @@ class FormulaEvaluator:
             # read ImputedForecast from the variable map. They are handled separately
             # because they must not silently drop a None argument.
             if func_name in ("interpolate_1", "interpolate1"):
-                return self._interpolate(args, var_map, INTERPOLATE_1_DIVISOR)
-            elif func_name in ("interpolate_2", "interpolate2"):
-                return self._interpolate(args, var_map, INTERPOLATE_2_DIVISOR)
+                return self._interpolate(args, var_map, INTERPOLATE_1_DIVISOR, INTERPOLATE_1_OFFSET)
 
             if not args:
                 return None
@@ -280,8 +276,9 @@ class FormulaEvaluator:
         args: List[float],
         var_map: Dict[str, Optional[float]],
         divisor: float,
+        offset: float,
     ) -> Optional[float]:
-        """Interpolate_n Anchor = MaxOwn + ((Strategy - MaxOwn) / divisor) * (ImputedForecast + divisor).
+        """Interpolate_1 Anchor = MaxOwn + ((Strategy - MaxOwn) / divisor) * (ImputedForecast - offset).
 
         ``args`` is expected to be ``[MaxOwn, Strategy]`` (in that order). ImputedForecast
         is read from the variable map and expressed as a fraction (e.g. 0.85 for 85%).
@@ -297,10 +294,10 @@ class FormulaEvaluator:
             return max_own
 
         # ImputedForecast is supplied as a percentage upstream (e.g. 86.0 for 86%).
-        # Convert to a fraction so the (+ divisor) term is on the same scale.
+        # Convert to a fraction so the (- offset) term is on the same scale.
         imp_fraction = float(imp_forecast) / 100.0 if abs(float(imp_forecast)) > 1.5 else float(imp_forecast)
 
-        return max_own + ((strategy - max_own) / divisor) * (imp_fraction + divisor)
+        return max_own + ((strategy - max_own) / divisor) * (imp_fraction - offset)
 
 
 class ForecastAllocationLogic:
@@ -549,11 +546,11 @@ class ForecastAllocationLogic:
         profileFare: Any,
         last3Fare: Any,
     ) -> Optional[float]:
-        """Max Own = Max(Profile Fare, Last 3 Fare), capped below the Strategy Fare.
+        """Max Own Fare = Max(Last Sold / Last 3, Profile) subject to being <= Strategy.
 
-        Per Change Notes – 3, Max Own is the higher of the profile fare and the Last 3
-        fare, but it must not exceed the Strategy fare. Returns None if no own-fare
-        candidate is available.
+        Per Change Notes – 3, Max Own is the highest own fare (Last 3 and Profile)
+        that is still at or below the Strategy fare. If no own fare is lower than
+        the Strategy fare, the Strategy fare itself becomes Max Own.
         """
         own_candidates: List[float] = []
         if value_exist(profileFare) and float(profileFare) > 0:
@@ -561,13 +558,22 @@ class ForecastAllocationLogic:
         if value_exist(last3Fare) and float(last3Fare) > 0:
             own_candidates.append(float(last3Fare))
 
-        if not own_candidates:
-            return float(strategyFare) if value_exist(strategyFare) else None
+        strat = float(strategyFare) if (value_exist(strategyFare) and float(strategyFare) > 0) else None
 
-        max_own = max(own_candidates)
-        if value_exist(strategyFare) and float(strategyFare) > 0:
-            max_own = min(max_own, float(strategyFare))
-        return max_own
+        if not own_candidates:
+            return strat
+
+        if strat is None:
+            # No strategy cap available -> fall back to the highest own fare.
+            return max(own_candidates)
+
+        # Keep only own fares that do not exceed the Strategy fare.
+        eligible = [f for f in own_candidates if f <= strat]
+        if eligible:
+            return max(eligible)
+
+        # No own fare is lower than Strategy -> Strategy becomes Max Own.
+        return strat
 
     def calculate_anchor(
         self,
