@@ -694,25 +694,38 @@ class NextGenOptimizationEngine:
                     if f < b_val:
                         au_rev[i] = 0.0
 
-            # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
-            open_idx = None
-            for i in range(n - 1, -1, -1):
-                if au_rev[i] > 0:
-                    open_idx = i
-                    break
-
+            # 1. 20-seat limit on AU_Revised: capacity - AU_Revised should not cross 20 seats
             first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
             if first_rbd_seats <= 0:
                 first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
-            if open_idx is not None:
-                au_rev[open_idx] = min(au_rev[open_idx], float(cb + first_rbd_seats))
+            min_open_au = max(0.0, float(cap - first_rbd_seats))
+            for i in range(n):
+                if au_rev[i] > 0 and (cap - au_rev[i] > first_rbd_seats):
+                    au_rev[i] = min_open_au
+            for i in range(n - 2, -1, -1):
+                if au_rev[i] > 0 and au_rev[i] < au_rev[i + 1]:
+                    au_rev[i] = au_rev[i + 1]
 
-            # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
+            # 2. Hardanchor with PLF threshold: applied after 20-seat limit
+            ha_applied = False
+            h_ladder_comp = None
             if h_val is not None and h_val > 0:
-                lower_candidates = [f for f in fares if f <= h_val]
+                if tax_helper and origin and destin:
+                    try:
+                        ha_allin_val = float(hardanchor)
+                        lower_candidates = [
+                            f for f in fares
+                            if tax_helper.airline_component_to_allin(f, origin, destin, route=route) <= ha_allin_val + 1.0
+                        ]
+                    except Exception:
+                        lower_candidates = [f for f in fares if f <= h_val + 1e-4]
+                else:
+                    lower_candidates = [f for f in fares if f <= h_val + 1e-4]
+
                 h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
                 ha_idx = fares.index(h_ladder)
+                h_ladder_comp = float(h_ladder)
 
                 plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
                 plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
@@ -721,16 +734,28 @@ class NextGenOptimizationEngine:
 
                 if au_rev[ha_idx] < plf_target:
                     au_rev[ha_idx] = plf_target
+                    ha_applied = True
 
                 for i in range(ha_idx):
                     if au_rev[i] < au_rev[ha_idx]:
                         au_rev[i] = plf_target
 
                 if b_val is not None and b_val > 0:
-                    for i, f in enumerate(fares):
-                        if f < b_val:
+                    start_wipe_idx = (ha_idx + 1) if (b_val <= h_val + 1e-4) else ha_idx
+                    for i in range(start_wipe_idx, n):
+                        if fares[i] < b_val:
                             au_rev[i] = 0.0
 
+            # Ensure capacity - AU_Revised does not cross 20 seats for open buckets
+            for i in range(n):
+                if au_rev[i] > 0 and (cap - au_rev[i] > first_rbd_seats):
+                    au_rev[i] = min_open_au
+            for i in range(n - 2, -1, -1):
+                if au_rev[i] > 0 and au_rev[i] < au_rev[i + 1]:
+                    au_rev[i] = au_rev[i + 1]
+
+            df.attrs['hardanchor_applied'] = ha_applied
+            df.attrs['ha_ladder_fare'] = h_ladder_comp
             df['AU_Revised'] = au_rev
 
             f_lowest = fares[-1] if n > 0 else 0.0
@@ -896,25 +921,38 @@ class NextGenOptimizationEngine:
                 if f < b_val:
                     au_revised[i] = 0.0
 
-        # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
-        open_idx = None
-        for i in range(n - 1, -1, -1):
-            if au_revised[i] > 0:
-                open_idx = i
-                break
-
+        # 1. 20-seat limit on AU_Revised: capacity - AU_Revised should not cross 20 seats
         first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
         if first_rbd_seats <= 0:
             first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
-        if open_idx is not None:
-            au_revised[open_idx] = min(au_revised[open_idx], float(cb + first_rbd_seats))
+        min_open_au = max(0.0, float(cap - first_rbd_seats))
+        for i in range(n):
+            if au_revised[i] > 0 and (cap - au_revised[i] > first_rbd_seats):
+                au_revised[i] = min_open_au
+        for i in range(n - 2, -1, -1):
+            if au_revised[i] > 0 and au_revised[i] < au_revised[i + 1]:
+                au_revised[i] = au_revised[i + 1]
 
-        # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
+        # 2. Hardanchor with PLF threshold: applied after 20-seat limit
+        ha_applied = False
+        h_ladder_comp = None
         if h_val is not None and h_val > 0:
-            lower_candidates = [f for f in fares if f <= h_val]
+            if tax_helper and origin and destin:
+                try:
+                    ha_allin_val = float(hardanchor)
+                    lower_candidates = [
+                        f for f in fares
+                        if tax_helper.airline_component_to_allin(f, origin, destin, route=route) <= ha_allin_val + 1.0
+                    ]
+                except Exception:
+                    lower_candidates = [f for f in fares if f <= h_val + 1e-4]
+            else:
+                lower_candidates = [f for f in fares if f <= h_val + 1e-4]
+
             h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
             ha_idx = fares.index(h_ladder)
+            h_ladder_comp = float(h_ladder)
 
             plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
             plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
@@ -923,16 +961,28 @@ class NextGenOptimizationEngine:
 
             if au_revised[ha_idx] < plf_target:
                 au_revised[ha_idx] = plf_target
+                ha_applied = True
 
             for i in range(ha_idx):
                 if au_revised[i] < au_revised[ha_idx]:
                     au_revised[i] = plf_target
 
             if b_val is not None and b_val > 0:
-                for i, f in enumerate(fares):
-                    if f < b_val:
+                start_wipe_idx = (ha_idx + 1) if (b_val <= h_val + 1e-4) else ha_idx
+                for i in range(start_wipe_idx, n):
+                    if fares[i] < b_val:
                         au_revised[i] = 0.0
 
+        # Ensure capacity - AU_Revised does not cross 20 seats for open buckets
+        for i in range(n):
+            if au_revised[i] > 0 and (cap - au_revised[i] > first_rbd_seats):
+                au_revised[i] = min_open_au
+        for i in range(n - 2, -1, -1):
+            if au_revised[i] > 0 and au_revised[i] < au_revised[i + 1]:
+                au_revised[i] = au_revised[i + 1]
+
+        df.attrs['hardanchor_applied'] = ha_applied
+        df.attrs['ha_ladder_fare'] = h_ladder_comp
         df['AU_Revised'] = au_revised
 
         # During competition response, Promo inventory calculation is done again using strategy fare and 80% of strategy fare
@@ -1081,7 +1131,7 @@ class NextGenOptimizationEngine:
 
         denom = min(cap, pred_flown_rev) if pred_flown_rev > 0 else cap
         af_forecast = (predicted_revenue / denom) if denom > 0 else 0.0
-        lf_forecast_rev = (pred_flown_rev / cap) if cap > 0 else 0.0
+        lf_forecast_rev = min(1.0, max(0.0, (pred_flown_rev / cap))) if cap > 0 else 0.0
 
         return predicted_revenue, total_expected_revenue, pred_pickup_rev, pred_flown_rev, af_forecast, lf_forecast_rev, df
 
@@ -1442,21 +1492,22 @@ class NextGenOptimizationEngine:
                     if f < bs_val:
                         au_rev[i] = 0.0
 
-            # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
-            open_idx = None
-            for i in range(len(fares_init) - 1, -1, -1):
-                if au_rev[i] > 0:
-                    open_idx = i
-                    break
-
+            # 1. 20-seat limit on AU_Revised: capacity - AU_Revised should not cross 20 seats
             first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
             if first_rbd_seats <= 0:
                 first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
-            if open_idx is not None:
-                au_rev[open_idx] = min(au_rev[open_idx], float(cb_val + first_rbd_seats))
+            min_open_au = max(0.0, float(cap_val - first_rbd_seats))
+            for i in range(len(fares_init)):
+                if au_rev[i] > 0 and (cap_val - au_rev[i] > first_rbd_seats):
+                    au_rev[i] = min_open_au
+            for i in range(len(fares_init) - 2, -1, -1):
+                if au_rev[i] > 0 and au_rev[i] < au_rev[i + 1]:
+                    au_rev[i] = au_rev[i + 1]
 
-            # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
+            # 2. Hardanchor with PLF threshold: applied after 20-seat limit
+            ha_applied = False
+            h_ladder_comp = None
             if hardanchor is not None and hardanchor > 0:
                 ha_val = hardanchor
                 if tax_helper and origin and destin:
@@ -1464,9 +1515,22 @@ class NextGenOptimizationEngine:
                         ha_val = tax_helper.allin_to_airline_component(float(hardanchor), origin, destin, route=route)
                     except Exception:
                         pass
-                lower_candidates = [f for f in fares_init if f <= ha_val]
+
+                if tax_helper and origin and destin:
+                    try:
+                        ha_allin_val = float(hardanchor)
+                        lower_candidates = [
+                            f for f in fares_init
+                            if tax_helper.airline_component_to_allin(f, origin, destin, route=route) <= ha_allin_val + 1.0
+                        ]
+                    except Exception:
+                        lower_candidates = [f for f in fares_init if f <= ha_val + 1e-4]
+                else:
+                    lower_candidates = [f for f in fares_init if f <= ha_val + 1e-4]
+
                 h_ladder = lower_candidates[0] if lower_candidates else fares_init[-1]
                 ha_idx = fares_init.index(h_ladder)
+                h_ladder_comp = float(h_ladder)
 
                 plf_th = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=promo_threshold_const), to_float(promo_threshold_const, DEFAULT_FORECAST_THRESHOLD_PROMO_AU))
                 plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
@@ -1475,18 +1539,30 @@ class NextGenOptimizationEngine:
 
                 if au_rev[ha_idx] < plf_target:
                     au_rev[ha_idx] = plf_target
+                    ha_applied = True
 
                 for i in range(ha_idx):
                     if au_rev[i] < au_rev[ha_idx]:
                         au_rev[i] = plf_target
 
                 if bs_val is not None and bs_val > 0:
-                    for i, f in enumerate(fares_init):
-                        if f < bs_val:
+                    start_wipe_idx = (ha_idx + 1) if (bs_val <= ha_val + 1e-4) else ha_idx
+                    for i in range(start_wipe_idx, len(fares_init)):
+                        if fares_init[i] < bs_val:
                             au_rev[i] = 0.0
+
+            # Ensure capacity - AU_Revised does not cross 20 seats for open buckets
+            for i in range(len(fares_init)):
+                if au_rev[i] > 0 and (cap_val - au_rev[i] > first_rbd_seats):
+                    au_rev[i] = min_open_au
+            for i in range(len(fares_init) - 2, -1, -1):
+                if au_rev[i] > 0 and au_rev[i] < au_rev[i + 1]:
+                    au_rev[i] = au_rev[i + 1]
 
             redistrib_df['AU_2'] = au_init
             redistrib_df['AU_Revised'] = au_rev
+            redistrib_df.attrs['hardanchor_applied'] = ha_applied
+            redistrib_df.attrs['ha_ladder_fare'] = h_ladder_comp
             redistrib_df.attrs['p_min_old'] = anchor_fare
             redistrib_df.attrs['anchor_fare'] = float(anchor_fare)
             if promo_flag == 1:
@@ -1643,17 +1719,31 @@ class NextGenOptimizationEngine:
                 ha_comp = float(hardanchor)
                 ha_allin = float(hardanchor)
 
-        # The effective floor on opening fare is max of backstop and hardanchor
-        eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
-        eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
+        # The effective floor on opening fare is backstop (hardanchor is a ceiling / low-PLF anchor, NOT a floor)
+        eff_floor_comp = bs_comp
+        eff_floor_allin = bs_allin
 
-        # Effective target response fare considers floor (backstop / hardanchor)
+        # Effective target response fare considers floor (backstop)
         eff_target_fare = eff_response_fare
         if eff_floor_comp is not None:
             eff_target_fare = max(eff_target_fare, eff_floor_comp)
 
         # Only forecast buckets with AU_Revised > 0 are considered open
         open_fc = [(f, a) for f, a in zip(fc_fares, fc_aus) if a > 0.0]
+
+        # Determine reference target fare for opening fare selection:
+        # If hardanchor was applied, the opening fare must be at or below hardanchor (matching the lowest open bucket)
+        is_ha_active = bool(redistrib_df.attrs.get('hardanchor_applied', False))
+        ha_ref_fare = redistrib_df.attrs.get('ha_ladder_fare', None)
+        if is_ha_active and ha_ref_fare is not None:
+            target_open_ref_fare = min(eff_response_fare, float(ha_ref_fare))
+        elif is_ha_active and open_fc:
+            target_open_ref_fare = min(eff_response_fare, open_fc[-1][0])
+        else:
+            target_open_ref_fare = eff_response_fare
+
+        if eff_floor_comp is not None:
+            target_open_ref_fare = max(target_open_ref_fare, eff_floor_comp)
 
         # Nearest fare among open forecast fares below effective target response fare
         if open_fc:
@@ -1672,21 +1762,21 @@ class NextGenOptimizationEngine:
         # Find nearest lower among the 51 fare levels (airline component)
         open_filed = None
         if filed_levels:
-            cand_51 = [fl for fl in filed_levels if fl['fare'] <= eff_response_fare + 1e-4]
+            cand_51 = [fl for fl in filed_levels if fl['fare'] <= target_open_ref_fare + 1e-4]
             if cand_51:
                 open_filed = cand_51[0]
             else:
                 open_filed = filed_levels[-1]
 
             # Enforce floor on opening fare if floor is higher
-            if eff_floor_comp is not None and open_filed['fare'] < eff_floor_comp:
+            if eff_floor_comp is not None and open_filed['fare'] < eff_floor_comp - 1e-4:
                 floor_cand = [fl for fl in filed_levels if fl['fare'] >= eff_floor_comp - 1e-4]
                 open_filed = floor_cand[-1] if floor_cand else open_filed
 
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
         else:
-            opening_fare = float(target_fc_fare)
+            opening_fare = float(target_open_ref_fare if is_ha_active else target_fc_fare)
             if eff_floor_comp is not None and opening_fare < eff_floor_comp:
                 opening_fare = eff_floor_comp
             if open_fc:
@@ -1702,9 +1792,9 @@ class NextGenOptimizationEngine:
         # Allocate inventory for each of the 51 fare levels:
         # QP fare RBDs below opening fare or below floor get AU=0.
         # The inventory at nearest forecast fare below competition response is assigned to opening 51 level.
+        min_open_au = open_fc[-1][1] if open_fc else 0.0
         filed_51_au_mapping = {}
         if filed_levels:
-            min_open_au = open_fc[-1][1] if open_fc else 0.0
             for fl in filed_levels:
                 f_comp = fl['fare']
                 r_code = fl['RBD']
@@ -1727,8 +1817,9 @@ class NextGenOptimizationEngine:
                     alloc_au = matched_au if matched_au is not None else 0.0
                 filed_51_au_mapping[r_code] = alloc_au
 
-            # Assign inventory at nearest forecast fare below competition response to opening RBD
-            opening_allocated_au = max(to_float(target_fc_au, 0.0), min_open_au)
+            # Assign inventory to opening RBD:
+            # opening_allocated_au comes from min_open_au (where capacity - AU_Revised <= 20)
+            opening_allocated_au = min_open_au
             filed_51_au_mapping[opening_rbd] = opening_allocated_au
 
             # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
@@ -1738,7 +1829,13 @@ class NextGenOptimizationEngine:
                 if filed_levels[i]['fare'] >= opening_fare - 1e-4:
                     filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
 
-        opening_au = filed_51_au_mapping.get(opening_rbd, target_fc_au) if filed_levels else target_fc_au
+            # In the final AU allocation after mapping to 52 RBDs, final RBD can be allocated to capacity
+            max_fare = filed_levels[0]['fare']
+            for fl in filed_levels:
+                if abs(fl['fare'] - max_fare) < 1e-4:
+                    filed_51_au_mapping[fl['RBD']] = float(cap_val)
+
+        opening_au = filed_51_au_mapping.get(opening_rbd, min_open_au) if filed_levels else min_open_au
         seats_on_opening = float(int(round(opening_au)))
 
         # Add 'opening fare' and 'opening fare_All_in' as columns in inventory file
@@ -1781,8 +1878,10 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
-                        if daily_lf is not None and 0.0 < daily_lf <= 1.0:
-                            daily_lf = daily_lf * 100.0
+                        if daily_lf is not None:
+                            if 0.0 < daily_lf <= 2.0:
+                                daily_lf = daily_lf * 100.0
+                            daily_lf = min(100.0, max(0.0, daily_lf))
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
             except Exception as e:
@@ -1818,7 +1917,7 @@ class NextGenOptimizationEngine:
 
         summary = {
             'NG_Historical_current_booked': cb_val,
-            'NG_LF_Forecast': daily_lf if daily_lf is not None else to_float(lf_fc_rev * 100.0, 0.0),
+            'NG_LF_Forecast': min(100.0, max(0.0, daily_lf if daily_lf is not None else (to_float(lf_fc_rev, 0.0) * 100.0))),
             'NG_AF_Forecast': int(round(daily_af)) if daily_af is not None else int(round(to_float(af_fc, 0.0))),
             'NG_Opening_fare': int(round(to_float(opening_fare_allin, 0.0))),
             'NG_FirstRBD': to_float(seats_on_opening, 0.0),

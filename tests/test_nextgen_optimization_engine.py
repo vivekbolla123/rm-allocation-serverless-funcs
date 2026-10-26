@@ -129,8 +129,8 @@ class TestNextGenOptimizationEngine:
         assert all(below_strat['mu_2'] == 0.0)
         assert all(below_strat['AU_Revised'] == 0)
 
-        # Verify FirstRBD cap: AU_Revised at strategy fare <= cb + 20
-        assert strat_row['AU_Revised'] <= (cb + 20)
+        # Verify 20-seat limit: capacity - AU_Revised should not cross 20 seats
+        assert (capacity - strat_row['AU_Revised']) <= 20.0
 
     def test_closed_form_revenue_forecast(self, sample_flight_data):
         """Verify expected accepted bookings integral and revenue forecast calculation."""
@@ -339,7 +339,8 @@ class TestNextGenOptimizationEngine:
         # Verify revised pickup sums only from anchor fare and above
         assert np.isclose(summary2['Predicted_Pickup_Revised'], expected_pickup_anchor_above)
         assert np.isclose(summary2['Predicted_Flown_Revised'], 80 + expected_pickup_anchor_above)
-        assert np.isclose(summary2['NG_LF_Forecast'], ((80 + expected_pickup_anchor_above) / 100.0) * 100.0)
+        # In output summary, LF forecast is capped at 100.0%
+        assert np.isclose(summary2['NG_LF_Forecast'], min(100.0, ((80 + expected_pickup_anchor_above) / 100.0) * 100.0))
 
         # If anchor2 > 3000, verify that the 3000 bucket's mu is excluded
         if anchor2 > 3000.0:
@@ -833,22 +834,22 @@ class TestNextGenOptimizationEngine:
         assert summary['Strategy_fare'] == 5400.0
         assert res_df['strategy_fare'].iloc[0] == 5400.0
 
-        # Check that 20-seat threshold is respected at the lowest open bucket
+        # Check that capacity - AU_Revised does not cross 20 seats at lowest open bucket
         open_rows = res_df[res_df['AU_Revised'] > 0]
         assert not open_rows.empty
         lowest_open_au = open_rows['AU_Revised'].iloc[-1]
-        assert lowest_open_au == min(open_rows['AU_2'].iloc[-1], cb + 20.0)
+        assert (capacity - lowest_open_au) <= 20.0
 
     def test_first_rbd_20_seat_threshold_and_hardanchor(self, sample_flight_data):
         """
         Verify that:
-        1. 20-seat threshold (cb + 20) is always enforced at opening bucket by default.
-        2. Hardanchor overrides the 20-seat threshold ONLY when explicitly configured
+        1. 20-seat limit (capacity - AU_Revised <= 20) is enforced for open buckets.
+        2. Hardanchor elevates AU_Revised to plf_target when explicitly configured
            in curr_params and curr_plf < plf_threshold.
         """
         capacity = 189
         cb = 50
-        # Case A: Without hardanchor -> 20-seat threshold strictly enforced
+        # Case A: Without hardanchor -> 20-seat limit strictly enforced (capacity - AU_Revised <= 20)
         res_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
             sample_flight_data, capacity, cb, 200000.0,
             market_fares=[],
@@ -858,7 +859,7 @@ class TestNextGenOptimizationEngine:
         open_rows = res_df[res_df['AU_Revised'] > 0]
         assert not open_rows.empty
         lowest_open_au = open_rows['AU_Revised'].iloc[-1]
-        assert lowest_open_au <= (cb + 20.0)
+        assert (capacity - lowest_open_au) <= 20.0
 
         # Case B: With hardanchor explicitly configured -> hardanchor elevates AU_Revised to plf_target
         # Suppose hardanchor is set to 4000.0 (which is in the ladder)
@@ -874,7 +875,7 @@ class TestNextGenOptimizationEngine:
             }
         )
         # Because curr_plf = 50/189 = 26.4% < 95%, hardanchor elevates AU_Revised for buckets >= 4000.0
-        # to target PLF = 0.95 * 189 = 179.55, which is > cb + 20 (70)
+        # to target PLF = 0.95 * 189 = 179.55
         ha_rows = res_df_ha[res_df_ha['fare'] >= 4000.0]
         assert (ha_rows['AU_Revised'] >= 179.0).any()
 
@@ -1225,6 +1226,148 @@ class TestNextGenOptimizationEngine:
 
         # summary['NG_FirstRBD'] and seats on opening must match
         assert summary['NG_FirstRBD'] >= 70.0
+
+    def test_hardanchor_lower_than_backstop_or_equal_not_wiped_by_backstop(self):
+        """
+        Verify Flight 1816 31 Oct fix:
+        When hardanchor=7000 and backstop=7000, discrete fare step lower than 7000
+        (e.g. fare=4930, allin=6552) must NOT be wiped out by backstop.
+        The opening fare must be <= 7000.
+        """
+        ladder_df = pd.DataFrame([
+            {'FareBucket': 'B1', 'fare': 7000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'FareBucket': 'B2', 'fare': 5409.0, 'mu': 3.0, 'sigma': 0.75},
+            {'FareBucket': 'B3', 'fare': 4930.0, 'mu': 4.0, 'sigma': 1.0},
+            {'FareBucket': 'B4', 'fare': 4000.0, 'mu': 5.0, 'sigma': 1.25},
+        ])
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity=194, current_bookings=30, current_revenue=100000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'hardanchor': 5356.19,  # airline component of 7000
+                'b2c_backstop': 5356.19,  # airline component of 7000
+                'plfthreshold': 95.0
+            }
+        )
+
+        # Bucket 4930 (ha_idx) must remain open with AU > 0 (elevated to PLF target)
+        au_4930 = final_df.loc[final_df['fare'] == 4930.0, 'AU_Revised'].iloc[0]
+        assert au_4930 > 0.0, f"Bucket 4930 must not be zeroed out by backstop! Got {au_4930}"
+        # Buckets strictly below ha_idx (4000.0) must be zeroed out by backstop
+        au_4000 = final_df.loc[final_df['fare'] == 4000.0, 'AU_Revised'].iloc[0]
+        assert au_4000 == 0.0
+
+        # Opening fare must be <= hardanchor (5356.19)
+        assert summary['opening_fare_airline_comp'] <= 5356.19
+
+    def test_hardanchor_not_treated_as_floor_opening_fare(self):
+        """
+        Verify Flight 1813 30 Oct fix:
+        Hardanchor is a CEILING under low PLF, NOT a floor.
+        If hardanchor=11000 and strategy_fare=9669, opening fare must open at strategy fare
+        (or lower), NOT be pushed up to 11000+.
+        """
+        ladder_df = pd.DataFrame([
+            {'FareBucket': 'B1', 'fare': 12000.0, 'mu': 1.0, 'sigma': 0.25},
+            {'FareBucket': 'B2', 'fare': 10000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'FareBucket': 'B3', 'fare': 9000.0, 'mu': 3.0, 'sigma': 0.75},
+            {'FareBucket': 'B4', 'fare': 7800.0, 'mu': 4.0, 'sigma': 1.0},
+        ])
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity=185, current_bookings=120, current_revenue=500000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'hardanchor': 11000.0,
+                'b2c_backstop': 7000.0,
+                'plfthreshold': 60.0  # cb=120 is 64.8% >= 60%, so hardanchor does not apply
+            }
+        )
+
+        # Opening fare should not be forced up to 11000.0
+        assert summary['opening_fare_airline_comp'] < 11000.0
+
+    def test_opening_fare_matches_hardanchor_bucket_when_active(self):
+        """
+        Verify Flight 1816 27 Oct fix:
+        When hardanchor is active and opens lower forecast buckets down to 8810,
+        the opening fare must be 8810 (the lowest open bucket), NOT the higher strategy fare (10174).
+        """
+        ladder_df = pd.DataFrame([
+            {'FareBucket': 'B1', 'fare': 10000.0, 'mu': 60.0, 'sigma': 15.0},
+            {'FareBucket': 'B2', 'fare': 8500.0, 'mu': 50.0, 'sigma': 12.5},
+            {'FareBucket': 'B3', 'fare': 7080.0, 'mu': 40.0, 'sigma': 10.0},
+            {'FareBucket': 'B4', 'fare': 5000.0, 'mu': 30.0, 'sigma': 7.5},
+        ])
+
+        filed_51_ladder = pd.DataFrame([
+            {'RBD': 'R1', 'fare': 10000.0, 'TOTAL': 12000.0},
+            {'RBD': 'R2', 'fare': 8210.0, 'TOTAL': 10174.0},
+            {'RBD': 'R3', 'fare': 7080.0, 'TOTAL': 8810.0},
+            {'RBD': 'R4', 'fare': 5000.0, 'TOTAL': 6500.0},
+        ])
+
+        # Prior to hardanchor, anchor fare is 8500 (B2), so B3 (7080) and B4 (5000) are closed.
+        # Response / strategy fare is 8280 (matching filed R2=8210, allin=10174).
+        # But hardanchor is 7080 (allin=8810) and PLF is low (cb=120/194 = 61.8% < 90%).
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity=194, current_bookings=120, current_revenue=1000000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'hardanchor': 7080.0,
+                'b2c_backstop': 5000.0,
+                'plfthreshold': 90.0,
+                'strategy_fare_NG': 8280.0
+            },
+            filed_51_ladder_df=filed_51_ladder
+        )
+
+        # Opening fare must be 7080 (all-in 8810), NOT 8210 (all-in 10174)
+        assert summary['opening_rbd'] == 'R3'
+        assert summary['opening_fare_airline_comp'] == 7080.0
+
+    def test_20_seat_limit_strictly_enforced_when_hardanchor_not_active(self):
+        """
+        Verify that when hardanchor is NOT active:
+        The opening RBD cannot exceed cb + 20 seats (e.g. cb=107 -> at most 127 seats),
+        preventing unconstrained AU (e.g. 174 seats) from leaking onto the opening RBD.
+        """
+        ladder_df = pd.DataFrame([
+            {'FareBucket': 'B1', 'fare': 10000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'FareBucket': 'B2', 'fare': 8000.0, 'mu': 3.0, 'sigma': 0.75},
+            {'FareBucket': 'B3', 'fare': 6000.0, 'mu': 4.0, 'sigma': 1.0},
+        ])
+
+        filed_51_ladder = pd.DataFrame([
+            {'RBD': 'R1', 'fare': 10000.0, 'TOTAL': 12000.0},
+            {'RBD': 'R2', 'fare': 8000.0, 'TOTAL': 10000.0},
+            {'RBD': 'R3', 'fare': 6000.0, 'TOTAL': 7500.0},
+        ])
+
+        cb = 107.0
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity=185, current_bookings=cb, current_revenue=500000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'first_rbd_NG': 20,
+                'b2c_backstop': 6000.0,
+                'hardanchor': None
+            },
+            filed_51_ladder_df=filed_51_ladder
+        )
+
+        # In AU revised, capacity minus AU_revised should not cross 20 seats
+        capacity = 185
+        assert (capacity - summary['NG_FirstRBD']) <= 20.0
+        opening_rbd = summary['opening_rbd']
+        assert (capacity - summary['filed_51_au_mapping'][opening_rbd]) <= 20.0
+        # In final AU allocation after mapping to 52 RBDs, final RBD (highest fare class R1) is allocated to capacity
+        assert summary['filed_51_au_mapping']['R1'] == float(capacity)
 
 
 

@@ -1745,9 +1745,10 @@ class DynAlloc:
 						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
 							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
 							if daily_lf is not None:
-								if 0.0 < daily_lf <= 1.0:
+								if 0.0 < daily_lf <= 2.0:
 									daily_lf = daily_lf * 100.0
-								ng_summary['NG_LF_Forecast'] = round(daily_lf, 4)
+								daily_lf = min(100.0, max(0.0, daily_lf))
+								ng_summary['NG_LF_Forecast'] = round(daily_lf, 2)
 						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
 							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
 							if daily_af is not None:
