@@ -74,6 +74,20 @@ def getParsedForecast(self):
   except (ValueError, TypeError):
     return CONST_NA
 
+def getForecastNdoMax(self):
+  """Effective upper NDO bound for applying the forecast PLF.
+
+  LB / ML sectors keep the historical ceiling (FORECAST_ALLOC_NDO_MAX, 30).
+  WADD sectors source their forecast from the additive model, which is
+  generated for every flight in the next 180 days, so the forecast applies
+  across the full 0-180 NDO range (WADD_FORECAST_NDO_MAX).
+  """
+  default_max = self.constantsUtils.FORECAST_ALLOC_NDO_MAX
+  model = str(getattr(self.currParams, 'forecast_model', '') or '').strip().upper()
+  if model == 'WADD':
+    return self.constantsUtils.WADD_FORECAST_NDO_MAX
+  return default_max
+
 def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
   """
   Phase 2 BRD imputed forecast (PLF, 0-100 scale).

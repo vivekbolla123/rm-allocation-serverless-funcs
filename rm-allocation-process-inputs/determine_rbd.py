@@ -346,7 +346,14 @@ class DetermineRBD:
 
                 # AUTOBACKSTOP LOGIC
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
-                if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
+                dplf_band_in_range = int(str(dplfBand).strip()) in (0, 1, 2)
+                forecast_below_threshold = False
+                try:
+                    if forecastAllocFlag == 1 and imp_forecast != CONST_NA and imp_forecast is not None:
+                        forecast_below_threshold = float(imp_forecast) < self.constantsutils.AUTO_BACKSTOP_FORECAST_THRESHOLD
+                except (ValueError, TypeError):
+                    forecast_below_threshold = False
+                if effective_autoBackstopFlag == "1" and (dplf_band_in_range or forecast_below_threshold):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
@@ -1047,7 +1054,8 @@ class DetermineRBD:
                         
                         target_band_id = str(imp_forecast_band)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
+                        if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -1606,7 +1614,8 @@ class DetermineRBD:
                         
                         target_band_id = str(dplfBand)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
+                        if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
