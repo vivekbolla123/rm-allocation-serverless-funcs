@@ -59,6 +59,13 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Market-list collections that are exempt from the `defaultMlFlag: 0` filter.
+# "market_list" is the main managed list; "market_list_default" is the adhoc
+# collection populated by the Default-ML job, whose rows intentionally carry
+# defaultMlFlag=1 and must still be processed. Other adhoc tables (eqt/thirty)
+# keep the filter so default-ML rows are excluded from them.
+DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES = {"market_list", "market_list_default"}
+
 def log_memory(label):
     import psutil, os
     process = psutil.Process(os.getpid())
@@ -1144,7 +1151,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
                 ]
             }
         }
-        if market_list_table != "market_list" and query_type != 'connections':
+        if market_list_table not in DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
         cursor = mongo_find_with_retry(market_list_table, market_list_filter)
@@ -1183,7 +1190,7 @@ def fetch_market_list_for_specific_dates(specific_dates, market_list_table, quer
         date_strs = [pd.Timestamp(d).strftime('%m/%d/%Y') for d in specific_dates]
         market_list_filter = {'PerStart': {'$in': date_strs}}
 
-        if market_list_table != "market_list" and query_type != 'connections':
+        if market_list_table not in DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
         cursor = mongo_find_with_retry(market_list_table, market_list_filter)
