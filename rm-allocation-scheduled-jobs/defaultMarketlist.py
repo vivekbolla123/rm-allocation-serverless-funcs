@@ -905,6 +905,15 @@ class defaultMarketlist:
             if 'FlightNumber' in adhoc_df.columns:
                 adhoc_df['FlightNumber'] = pd.to_numeric(adhoc_df['FlightNumber'], errors='coerce')
 
+            # fetch-inputs applies a `defaultMlFlag: 0` filter to every non-"market_list"
+            # table (it's meant to exclude default-ML rows from managed adhoc tables).
+            # These rows carry defaultMlFlag=1 from _build_insert_dataframe, so without
+            # this they'd be filtered out and fetch-inputs would see an empty market list.
+            # This adhoc run treats them as managed flights, so clear the flag on the copy
+            # written to market_list_default (the source market_list rows keep flag=1).
+            if 'defaultMlFlag' in adhoc_df.columns:
+                adhoc_df['defaultMlFlag'] = 0
+
             # Each run replaces the full contents (same semantics as EQT/Thirty).
             delete_result = collection.delete_many({})
             self.logger.info(
