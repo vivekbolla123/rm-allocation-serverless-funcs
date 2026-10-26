@@ -1610,17 +1610,9 @@ class NextGenOptimizationEngine:
         )
 
         # Step 5: 51 Fare Levels (airline component) Mapping & Opening Fare
-        # Nearest forecast fare below competition response fare (or anchor fare)
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
         eff_response_fare = response_fare if response_fare is not None else anchor_fare
-
-        # Nearest fare among forecast fares below competition response fare
-        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_response_fare + 1e-4]
-        if fc_below:
-            target_fc_fare, target_fc_au = fc_below[0]
-        else:
-            target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
         # Determine backstop and hardanchor values in airline component and all-in
         bs_comp = None
@@ -1655,6 +1647,28 @@ class NextGenOptimizationEngine:
         eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
         eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
 
+        # Effective target response fare considers floor (backstop / hardanchor)
+        eff_target_fare = eff_response_fare
+        if eff_floor_comp is not None:
+            eff_target_fare = max(eff_target_fare, eff_floor_comp)
+
+        # Only forecast buckets with AU_Revised > 0 are considered open
+        open_fc = [(f, a) for f, a in zip(fc_fares, fc_aus) if a > 0.0]
+
+        # Nearest fare among open forecast fares below effective target response fare
+        if open_fc:
+            fc_below = [(f, a) for f, a in open_fc if f <= eff_target_fare + 1e-4]
+            if fc_below:
+                target_fc_fare, target_fc_au = fc_below[0]
+            else:
+                target_fc_fare, target_fc_au = open_fc[-1]
+        else:
+            fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_target_fare + 1e-4]
+            if fc_below:
+                target_fc_fare, target_fc_au = fc_below[0]
+            else:
+                target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
+
         # Find nearest lower among the 51 fare levels (airline component)
         open_filed = None
         if filed_levels:
@@ -1675,7 +1689,11 @@ class NextGenOptimizationEngine:
             opening_fare = float(target_fc_fare)
             if eff_floor_comp is not None and opening_fare < eff_floor_comp:
                 opening_fare = eff_floor_comp
-            opening_rbd = str(final_df['FareBucket'].iloc[-1])
+            if open_fc:
+                open_cand = final_df[final_df['fare'] >= open_fc[-1][0] - 1e-4]
+                opening_rbd = str(open_cand.iloc[-1]['FareBucket']) if not open_cand.empty else str(final_df['FareBucket'].iloc[-1])
+            else:
+                opening_rbd = str(final_df['FareBucket'].iloc[-1])
 
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
         if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
@@ -1686,6 +1704,7 @@ class NextGenOptimizationEngine:
         # The inventory at nearest forecast fare below competition response is assigned to opening 51 level.
         filed_51_au_mapping = {}
         if filed_levels:
+            min_open_au = open_fc[-1][1] if open_fc else 0.0
             for fl in filed_levels:
                 f_comp = fl['fare']
                 r_code = fl['RBD']
@@ -1693,15 +1712,24 @@ class NextGenOptimizationEngine:
                     alloc_au = 0.0
                 else:
                     matched_au = None
-                    for fc_f, au_val in zip(fc_fares, fc_aus):
-                        if f_comp >= fc_f - 1e-4:
-                            matched_au = au_val
-                            break
+                    if open_fc:
+                        for fc_f, au_val in open_fc:
+                            if f_comp >= fc_f - 1e-4:
+                                matched_au = au_val
+                                break
+                        if matched_au is None:
+                            matched_au = min_open_au
+                    else:
+                        for fc_f, au_val in zip(fc_fares, fc_aus):
+                            if f_comp >= fc_f - 1e-4:
+                                matched_au = au_val
+                                break
                     alloc_au = matched_au if matched_au is not None else 0.0
                 filed_51_au_mapping[r_code] = alloc_au
 
             # Assign inventory at nearest forecast fare below competition response to opening RBD
-            filed_51_au_mapping[opening_rbd] = target_fc_au
+            opening_allocated_au = max(to_float(target_fc_au, 0.0), min_open_au)
+            filed_51_au_mapping[opening_rbd] = opening_allocated_au
 
             # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
             for i in range(len(filed_levels) - 2, -1, -1):
@@ -1753,6 +1781,8 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
+                        if daily_lf is not None and 0.0 < daily_lf <= 1.0:
+                            daily_lf = daily_lf * 100.0
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
             except Exception as e:

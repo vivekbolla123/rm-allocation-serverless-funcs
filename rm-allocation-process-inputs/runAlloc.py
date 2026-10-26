@@ -723,10 +723,14 @@ class DynAlloc:
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
+		# Effective forecast NDO ceiling — 30 for LB/ML, 180 for WADD sectors
+		# (additive model forecasts every flight in the next 180 days).
+		forecast_ndo_max = getForecastNdoMax(self)
+
 		# Forecast PLF — computed first because the imputed-forecast guard/fallback
 		# cases below return forecast_plf when the adjustment can't be applied.
 		forecast_plf = forecastBand = CONST_NA
-		if ndocounter <= 30:
+		if ndocounter <= forecast_ndo_max:
 			forecast_plf = getParsedForecast(self)
 		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
 			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
@@ -737,7 +741,7 @@ class DynAlloc:
 		imp_forecast = CONST_NA
 		PLF_Gain = CONST_NA
 		Af_Nb_Allin = CONST_NA
-		if ndocounter <= 30:
+		if ndocounter <= forecast_ndo_max:
 			imp_forecast = getParsedImputedForecast(
 				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
 			)
@@ -754,7 +758,7 @@ class DynAlloc:
 		if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
 			imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
 			af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
-			if ndocounter <= 30:
+			if ndocounter <= forecast_ndo_max:
 				group_forecast_band_result = self.rmdatabasehelper.get_group_forecast_band(imp_forecast)
 				group_forecast_band = group_forecast_band_result.get('band', CONST_NA) if isinstance(group_forecast_band_result, dict) else CONST_NA
 		else:
@@ -800,8 +804,8 @@ class DynAlloc:
 
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
-		# Strategy Band logic
-		forecastAllocNdoMax = int(getattr(self.constantsUtils, 'FORECAST_ALLOC_NDO_MAX', 30))
+		# Strategy Band logic — WADD sectors extend the forecast NDO ceiling to 180.
+		forecastAllocNdoMax = forecast_ndo_max
 		strategy_band = group_forecast_band if (forecastAllocFlag == 1 and ndocounter <= forecastAllocNdoMax) else dplfBand_full
 
 		# Get Dynamic D1 (Time Window)
@@ -1741,7 +1745,9 @@ class DynAlloc:
 						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
 							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
 							if daily_lf is not None:
-								ng_summary['NG_LF_Forecast'] = daily_lf
+								if 0.0 < daily_lf <= 1.0:
+									daily_lf = daily_lf * 100.0
+								ng_summary['NG_LF_Forecast'] = round(daily_lf, 4)
 						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
 							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
 							if daily_af is not None:
@@ -1981,6 +1987,16 @@ class DynAlloc:
 					# Compute NextGen AU mapping for B2C RBDs regardless of nextgen_flag
 					if not ng_opt_df.empty:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
+						b2c_const_val = getattr(self.constantsUtils, 'QP_B2C_RBD_VALUES', '') or globals().get('QP_B2C_RBD_VALUES', '')
+						if b2c_const_val:
+							b2c_rbd_set.update([r.strip() for r in str(b2c_const_val).split(',') if r.strip()])
+
+						non_b2c_rbds = set()
+						for attr_name in ['B2B_RBD_VALUES', 'GROUP_RBD_VALUES', 'DISTRESS_RBD_VALUES', 'TBF_RBD', 'CUG_RBD']:
+							val = getattr(self.constantsUtils, attr_name, None) or globals().get(attr_name, None)
+							if val:
+								non_b2c_rbds.update([r.strip() for r in str(val).split(',') if r.strip()])
+
 						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
 						filed_51_au_map = ng_summary.get('filed_51_au_mapping') or {}
 
@@ -2003,8 +2019,14 @@ class DynAlloc:
 							if not cos:
 								continue
 
-							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
-							is_b2c = (c_type == 'B2C') or (cos in b2c_rbd_set)
+							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF, Distress) are excluded
+							is_non_b2c = (c_type and str(c_type).upper() in ['B2B', 'GROUP', 'DISTRESS', 'CUG', 'TBF']) or (cos in non_b2c_rbds)
+							if promo_flag == 1 and cos == promo_rbd:
+								is_b2c = True
+								is_non_b2c = False
+							else:
+								is_b2c = ((c_type == 'B2C') or (cos in b2c_rbd_set)) and not is_non_b2c
+
 							if not is_b2c:
 								continue
 
@@ -2275,13 +2297,46 @@ class DynAlloc:
 				if val not in (None, CONST_NA, 'NA'):
 					setattr(row, f_col, safe_round_fare(val))
 
-		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
+		# Region-gated B2B suppression for direct records. When the
+		# B2B_DIRECT_OUTPUT_SUMMARY_FLAG value for this record's region is
+		# false, skip inserting the B2B output-summary row for direct
+		# (non-connection) records. B2C is always inserted.
+		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c]
+		if not self._shouldSkipB2BDirectSummary(state):
+			new_summary_rows_fullalloc.append(self.outputSummaryRow_b2b)
+
 		self.allocResults.extend(new_summary_rows_fullalloc)
 		state.outputSummaryRow_b2c = self.outputSummaryRow_b2c
 		state.outputSummaryRow_b2b = self.outputSummaryRow_b2b
-		# Database insert
-		if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
-		else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
+		# Database insert — one row at a time (insertSummaryRow persists the
+		# last element of the list it receives).
+		for summary_row in new_summary_rows_fullalloc:
+			self.rmdatabasehelper.insertSummaryRow([summary_row])
+
+	def _shouldSkipB2BDirectSummary(self, state):
+		"""Return True when the B2B output-summary row should be skipped, based on the region-keyed
+		``B2B_DIRECT_OUTPUT_SUMMARY_FLAG`` constant. The flag is a JSON map like ``{"Domestic": false, "International": true}``.
+		"""
+		flag_map = self.constantsUtils.B2B_DIRECT_OUTPUT_SUMMARY_FLAG
+		if not isinstance(flag_map, dict):
+			return False
+
+		region = getattr(self.currParams, 'region', DOMESTIC_VALUE) or DOMESTIC_VALUE
+		region_enabled = flag_map.get(region)
+		# Fall back to a case-insensitive lookup if the exact key isn't present.
+		if region_enabled is None:
+			region_lower = str(region).strip().lower()
+			for key, value in flag_map.items():
+				if str(key).strip().lower() == region_lower:
+					region_enabled = value
+					break
+
+		# If region isn't configured, default to inserting (don't skip).
+		if region_enabled is None:
+			return False
+
+		# Skip B2B insertion when the flag is falsy for this region.
+		return not bool(region_enabled)
 
 		self._update_selling_fare_in_history(state)
 
