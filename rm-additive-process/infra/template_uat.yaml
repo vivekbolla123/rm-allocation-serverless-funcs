@@ -1,0 +1,66 @@
+# Synthesized CloudFormation template for uat-rm-lambda-rm-additive-process
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dedicated infrastructure stack for uat-rm-lambda-rm-additive-process
+Parameters: {}
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/uat-rm-lambda-rm-additive-process
+      RetentionInDays: 30
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+    - LogGroup
+    Properties:
+      FunctionName: uat-rm-lambda-rm-additive-process
+      Description: Additive process handler for RM additive model
+      PackageType: Image
+      Code:
+        ImageUri: 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-ecr-rm-additive-process:latest
+      Role: arn:aws:iam::891377165721:role/lambda-execution-role
+      Timeout: 900
+      MemorySize: 4096
+      EphemeralStorage:
+        Size: 2048
+      Architectures:
+      - x86_64
+      Environment:
+        Variables:
+          env: uat
+          DD_LAMBDA_HANDLER: lambda_function.lambda_handler
+          DD_SITE: datadoghq.com
+          DD_ENV: uat
+          DD_SERVICE: rm-additive-process
+          DD_VERSION: latest
+          DD_TRACE_ENABLED: 'true'
+          DD_DATA_STREAMS_ENABLED: 'true'
+          DD_SERVERLESS_LOGS_ENABLED: 'true'
+          DD_LOGS_INJECTION: 'true'
+          DD_COLD_START_TRACING: 'false'
+          DD_TAGS: env:uat,service:rm-additive-process,Department:RM,team:RM
+      Tags:
+      - Key: Environment
+        Value: uat
+      - Key: Service
+        Value: rm-additive-process
+      - Key: ManagedBy
+        Value: InfraAsCode
+      - Key: Department
+        Value: RM
+      VpcConfig:
+        SubnetIds:
+        - subnet-053e2b8d03017c388
+        - subnet-0a05a901a38cd5672
+        SecurityGroupIds:
+        - sg-087f8184f725ec3fe
+Outputs:
+  FunctionName:
+    Description: Lambda Function Name
+    Value: uat-rm-lambda-rm-additive-process
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - LambdaFunction
+      - Arn
