@@ -202,8 +202,9 @@ class DynAlloc:
 					self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_BOOKLOADS)
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
-					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
-					TBFExist = self.rmdatabasehelper.get_TBF_fares(origin, destination)
+					dep_date_dt = datetime.strptime(str(tgtDate), DATE_FORMAT_2)
+					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination, dep_date_dt)
+					TBFExist = self.rmdatabasehelper.get_TBF_fares(origin, destination, dep_date_dt)
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
@@ -921,7 +922,7 @@ class DynAlloc:
 		# Last Selling Fare
 		lastSoldFareb2c_val = CONST_NA; lastSoldFareb2b_val = CONST_NA; last_seven_avg_val = CONST_NA
 		input_source_lsf = self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) # Default to TEST_DATA if not set
-		qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+		qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin, state.currFltDate_dt)
 		if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
 			self.currency = str(qpcurrency_df['currency'].iloc[0]).strip()
 		else:
@@ -1384,7 +1385,7 @@ class DynAlloc:
 			current_brd_counter = brd_counter_after_b2c
 
 			# B2B Z0 fare check vs backstop
-			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
+			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L', state.currFltDate_dt)
 			b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
 
 			if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
@@ -1414,7 +1415,7 @@ class DynAlloc:
 			current_brd_counter = self.w_rbd_allocation(currRec_fullalloc, current_brd_counter) # Uses final_plf
 
 			# CUG allocation
-			B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, [CUG_CHANNEL, GROUP_CHANNEL, TBF_CHANNEL], '', 'L')
+			B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, [CUG_CHANNEL, GROUP_CHANNEL, TBF_CHANNEL], '', 'L', state.currFltDate_dt)
 			cug_bookings_dict_local = getattr(self, 'cug_bookings_dict', {}) # Use if it's a class member, else ensure defined
 
 			param_cug_flag = getattr(self.currParams, 'cug_flag', 0) # Default

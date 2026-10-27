@@ -106,13 +106,15 @@ class DetermineRBD:
         overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
+        dep_date_dt = state.currFltDate_dt if state else datetime.strptime(currFltDate, "%m/%d/%Y")
+
+        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', dep_date_dt, strategy_criteria)
         if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
-            hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
+            hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L', dep_date_dt)
             if hardrbddata.shape[0] == 0 and  hardAnchorFare!=CONST_NA:
-                hardopenResult = self.extremeFaresSkipping(origin, destin, hardAnchorFare, hardoffset, channel, backstop,  hardopenResult, 'L')
+                hardopenResult = self.extremeFaresSkipping(origin, destin, hardAnchorFare, hardoffset, channel, backstop,  hardopenResult, 'L', dep_date_dt)
             elif  hardAnchorFare!=CONST_NA:
-                hardopenResult = self.getFares(origin, destin, hardAnchorFare, hardoffset, channel,  hardopenResult, hardrbddata, howDetermined, 'L')
+                hardopenResult = self.getFares(origin, destin, hardAnchorFare, hardoffset, channel,  hardopenResult, hardrbddata, howDetermined, 'L', dep_date_dt)
             hardAnchorFare=hardopenResult['Fare'][0]
 
         # Helper: build the early-return tuple in the exact slot order the legacy
@@ -370,6 +372,7 @@ class DetermineRBD:
             early_return=False,
             early_return_tuple=None,
             T_prime=T_prime,
+            dep_date_dt=dep_date_dt
         )
 
     def applyAnchorToLadder(self, anchor_result, currParams, offset=0, strategy_criteria=None, state=None):
@@ -411,11 +414,11 @@ class DetermineRBD:
         if anchorFare != 0:
             # Final ladder lookup uses offset=0 in today's code; preserve that exactly.
             offset = 0
-            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
+            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', anchor_result.dep_date_dt, strategy_criteria)
             if rbddata.shape[0] == 0:
-                openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
+                openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L', anchor_result.dep_date_dt)
             else:
-                openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
+                openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L', anchor_result.dep_date_dt)
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
 
@@ -1800,18 +1803,18 @@ class DetermineRBD:
             
         return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime
 
-    def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
+    def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route, dep_date_dt):
         self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")
         # Fetch the Lowest or highest available fares
         condition = 'LOW'
         if int(offset) >= 0:
             condition = 'HI'
 
-        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, condition, backstop, route)
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, condition, backstop, route, dep_date_dt)
 
         # Edge case where backstop is placed at a very large value - allocates at Z0 or Y levels
         if defFareData.shape[0] == 0:
-            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route) 
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route, dep_date_dt) 
 
         if defFareData.shape[0] != 0:
             if channel == B2C_CHANNEL:
@@ -1830,7 +1833,7 @@ class DetermineRBD:
             
             return openResult
         
-    def getFaresWithBackstop(self, origin, destin, anchorFare, offset, channel, backstop, openResult, rbddata, howDetermined, route):
+    def getFaresWithBackstop(self, origin, destin, anchorFare, offset, channel, backstop, openResult, rbddata, howDetermined, route, dep_date_dt):
         backstopFlag = False
         backstopReason = ""
         extremeFareFlag = False
@@ -1842,7 +1845,7 @@ class DetermineRBD:
             offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
-        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route)
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route, dep_date_dt)
 
         if defFareData.shape[0] != 0:
             if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
@@ -1851,7 +1854,7 @@ class DetermineRBD:
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
-            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route, dep_date_dt)
             
         if rbddata['RBD'][0] == self.constantsutils.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.constantsutils.LOWEST_B2C_RBD_VALUE:
             if len(defFareData) == 0:
@@ -1889,7 +1892,7 @@ class DetermineRBD:
 
         if channel == B2B_CHANNEL:
             # Special handling for B2B - if the B2B Anchor fare is higher than Z0 - Skip B2B
-            limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route, dep_date_dt)
             limitB2BFare = 0
             if defFareData.shape[0] != 0:
                 limitB2BFare = float(limitB2BFare_Data['TOTAL'][0])
@@ -1930,7 +1933,7 @@ class DetermineRBD:
         except:
             return False
         
-    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route, strategy_criteria=None):
+    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route, dep_date_dt, strategy_criteria=None):
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
@@ -1940,14 +1943,14 @@ class DetermineRBD:
             offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
-        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route)
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route, dep_date_dt)
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
-            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route, dep_date_dt)
             
         if rbddata['RBD'][0] == self.constantsutils.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.constantsutils.LOWEST_B2C_RBD_VALUE:
-            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route)
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route, dep_date_dt)
             if len(defFareData) == 0:
                 extremeFareFlag = True
                 RBDtoOpen = rbddata['RBD'][0]
@@ -1978,7 +1981,7 @@ class DetermineRBD:
 
         if channel == B2B_CHANNEL:
             # Special handling for B2B - if the B2B Anchor fare is higher than Z0 - Skip B2B
-            limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route, dep_date_dt)
             limitB2BFare = 0
             if defFareData.shape[0] != 0:
                 limitB2BFare = float(limitB2BFare_Data['TOTAL'][0])

@@ -1,27 +1,34 @@
 package com.akasaair.queues.common.Validations;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.*;
 
 import static com.akasaair.queues.common.constants.Constants.*;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.FARE_START_DATE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.FARE_END_DATE_COLUMN_NAME;
 
 public class FaresValidator implements Validator {
+
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
 
     @Override
     public boolean isValid(List<Map<String, String>> data, String val, List<String> errors) {
         try {
             List<String> rdbValues = Arrays.asList(val.split(COMMA));
-            HashSet<String> rbd = new HashSet<>();
-            Map<String, Integer> hashMap = new HashMap<>();
 
             for (int lineNumber = 0; lineNumber < data.size(); lineNumber++) {
                 Map<String, String> singleData = data.get(lineNumber);
-                String rbdVal = singleData.get(RBD_COLUMN_NAME);
-                String sector = singleData.get(SECTOR_COLUMN_NAME);
-                String org = singleData.get("Org");
-                String dst = singleData.get("Dst");
-                String route = singleData.get(ROUTE_COLUMN_NAME);
-                String totalStr = singleData.get("TOTAL");
-                String currency = singleData.get("currency");
+                String rbdVal    = singleData.get(RBD_COLUMN_NAME);
+                String sector    = singleData.get(SECTOR_COLUMN_NAME);
+                String org       = singleData.get("Org");
+                String dst       = singleData.get("Dst");
+                String route     = singleData.get(ROUTE_COLUMN_NAME);
+                String totalStr  = singleData.get("TOTAL");
+                String currency  = singleData.get("currency");
+                String startDate = singleData.get(FARE_START_DATE_COLUMN_NAME);
+                String endDate   = singleData.get(FARE_END_DATE_COLUMN_NAME);
 
                 validateSector(sector, errors, lineNumber);
                 validateOrg(org, errors, lineNumber);
@@ -30,12 +37,9 @@ public class FaresValidator implements Validator {
                 validateRBD(rbdVal, errors, lineNumber);
                 validateTotal(totalStr, errors, lineNumber);
                 validateCurrency(currency, errors, lineNumber);
+                validateDateFields(startDate, endDate, errors, lineNumber);
 
-                // Track unique sector and route combinations
-                String key = singleData.get(SECTOR_COLUMN_NAME) + singleData.get(ROUTE_COLUMN_NAME);
-                hashMap.put(key, hashMap.getOrDefault(key, 0) + 1);
-
-                // Validate RBD values
+                // Validate RBD values against the master list
                 if (!rdbValues.contains(rbdVal)) {
                     errors.add("Line " + (lineNumber + 1) + ": Invalid RBD value: " + rbdVal);
                 }
@@ -94,6 +98,41 @@ public class FaresValidator implements Validator {
         }
     }
 
-    // Removed eachElement method as we no longer enforce overall RBD counts per sector/route
+    /**
+     * Validates depDateStart and depDateEnd fields.
+     * Both are optional (empty = store as null in DB = open-ended bound).
+     * If non-empty, must be in MM/dd/yyyy format and depDateStart must not be after depDateEnd.
+     */
+    private void validateDateFields(String startDate, String endDate, List<String> errors, int lineNumber) {
+        LocalDate parsedStart = null;
+        LocalDate parsedEnd   = null;
+
+        boolean startEmpty = (startDate == null || startDate.trim().isEmpty());
+        boolean endEmpty   = (endDate   == null || endDate.trim().isEmpty());
+
+        if (!startEmpty) {
+            try {
+                parsedStart = LocalDate.parse(startDate.trim(), DATE_FORMATTER);
+            } catch (DateTimeParseException e) {
+                errors.add("Line " + (lineNumber + 1) + ": Invalid depDateStart format '" + startDate
+                        + "'. Expected MM/dd/yyyy.");
+            }
+        }
+
+        if (!endEmpty) {
+            try {
+                parsedEnd = LocalDate.parse(endDate.trim(), DATE_FORMATTER);
+            } catch (DateTimeParseException e) {
+                errors.add("Line " + (lineNumber + 1) + ": Invalid depDateEnd format '" + endDate
+                        + "'. Expected MM/dd/yyyy.");
+            }
+        }
+
+        // If both parsed successfully, ensure depDateStart <= depDateEnd (inclusive)
+        if (parsedStart != null && parsedEnd != null && parsedStart.isAfter(parsedEnd)) {
+            errors.add("Line " + (lineNumber + 1) + ": depDateStart (" + startDate
+                    + ") must not be after depDateEnd (" + endDate + ").");
+        }
+    }
 
 }

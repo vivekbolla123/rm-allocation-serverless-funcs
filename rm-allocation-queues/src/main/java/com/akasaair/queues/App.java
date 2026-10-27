@@ -5627,6 +5627,17 @@ public class App implements CommandLineRunner {
         }
     }
 
+    /**
+     * Parses a date string in MM/dd/yyyy format to a UTC-midnight {@code java.util.Date}
+     * for BSON Date storage. Returns {@code null} for blank/empty input (meaning open-ended).
+     */
+    private static Date parseFareDate(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return null;
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        return Date.from(LocalDate.parse(raw.trim(), fmt)
+                .atStartOfDay(ZoneOffset.UTC).toInstant());
+    }
+
     public void uploadFares(Reader file, String tableName, String userName, Object role,
                                   String objId) throws DataMismatchedException {
         try {
@@ -5639,6 +5650,7 @@ public class App implements CommandLineRunner {
             List<String> headers = Arrays.asList(getColumnHeaders(tableName).split(COMMA));
             List<Map<String, String>> data = createListOfMap(csvData, headers);
 
+            // ── Row-level validation (field format, date format, startDate<=endDate) ──
             Validator validate = getValidator(tableName);
             String val = getAllRBDs();
             if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
@@ -5649,22 +5661,35 @@ public class App implements CommandLineRunner {
                 throw new DataMismatchedException(listOfErrors.get());
             }
 
+            // ── Single pass: build group maps and collect date ranges ──────────────
+            // Key for date-range map: "sector|route|rbd"
             Map<String, Set<String>> rbdGroups = getRBDGroups();
-            Map<String, Map<String, Set<String>>> fileSectorsRoutesGroups = new HashMap<>();
-            Map<String, Map<String, Set<String>>> uploadedSectorRouteRbds = new HashMap<>();
+            Map<String, Map<String, Set<String>>> fileSectorsRoutesGroups  = new HashMap<>();
+            Map<String, Map<String, Set<String>>> uploadedSectorRouteRbds  = new HashMap<>();
+            // Each entry is a sorted list of [effectiveStart, effectiveEnd] pairs (for validation)
+            Map<String, List<LocalDate[]>> dateRangesPerSRR = new HashMap<>();
 
-            for (int i = 0; i < csvData.size(); i++) {
-                List<String> row = csvData.get(i);
+            DateTimeFormatter faresFmt = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+            LocalDate today = LocalDate.now();
+            LocalDate windowEnd = today.plusDays(365);
+
+            // csvData still has the header at index 0 (createListOfMap removes it, but csvData itself
+            // may or may not — check: createListOfMap calls csvData.remove(0), so csvData no longer
+            // has the header after createListOfMap. We iterate data (List<Map>) for the date scan.
+            for (int i = 0; i < data.size(); i++) {
+                Map<String, String> row = data.get(i);
                 try {
-                    if (row.size() < 7) continue;
-                    String sector = row.get(0).trim();
-                    String route = row.get(3).trim();
-                    String rbd = row.get(4).trim();
+                    String sector = row.getOrDefault(SECTOR_COLUMN_NAME, "").trim();
+                    String route  = row.getOrDefault(ROUTE_COLUMN_NAME, "").trim();
+                    String rbd    = row.getOrDefault(RBD_COLUMN_NAME, "").trim();
 
+                    if (sector.isEmpty() || route.isEmpty() || rbd.isEmpty()) continue;
+
+                    // Build existing group maps (same logic as before)
                     uploadedSectorRouteRbds
-                        .computeIfAbsent(sector, k -> new HashMap<>())
-                        .computeIfAbsent(route, k -> new HashSet<>())
-                        .add(rbd);
+                            .computeIfAbsent(sector, k -> new HashMap<>())
+                            .computeIfAbsent(route, k -> new HashSet<>())
+                            .add(rbd);
 
                     String groupName = null;
                     for (Map.Entry<String, Set<String>> entry : rbdGroups.entrySet()) {
@@ -5673,42 +5698,49 @@ public class App implements CommandLineRunner {
                             break;
                         }
                     }
-
                     if (groupName != null) {
                         fileSectorsRoutesGroups.computeIfAbsent(sector, k -> new HashMap<>())
-                            .computeIfAbsent(route, k -> new HashSet<>())
-                            .add(groupName);
+                                .computeIfAbsent(route, k -> new HashSet<>())
+                                .add(groupName);
                     }
+
+                    // ── Resolve effective date range for this row (for validation only) ──
+                    String rawStart = row.getOrDefault(FARE_START_DATE_COLUMN_NAME, "").trim();
+                    String rawEnd   = row.getOrDefault(FARE_END_DATE_COLUMN_NAME, "").trim();
+
+                    LocalDate effectiveStart = rawStart.isEmpty() ? today : LocalDate.parse(rawStart, faresFmt);
+                    LocalDate effectiveEnd   = rawEnd.isEmpty()   ? windowEnd : LocalDate.parse(rawEnd, faresFmt);
+
+                    String srrKey = sector + "|" + route + "|" + rbd;
+                    dateRangesPerSRR.computeIfAbsent(srrKey, k -> new ArrayList<>())
+                            .add(new LocalDate[]{effectiveStart, effectiveEnd});
+
                 } catch (Exception e) {
-                    // Ignore parsing errors for group identification
+                    // Ignore parse errors here; row-level validation already caught them
                 }
             }
 
-            // Validate that the uploaded RBDs form complete groups
+            // ── Validate group RBD completeness (existing check) ──────────────────
             boolean hasGroupValidationErrors = false;
             for (Map.Entry<String, Map<String, Set<String>>> sectorEntry : fileSectorsRoutesGroups.entrySet()) {
                 String sector = sectorEntry.getKey();
                 for (Map.Entry<String, Set<String>> routeEntry : sectorEntry.getValue().entrySet()) {
                     String route = routeEntry.getKey();
                     Set<String> expectedRbds = new HashSet<>();
-                    for (String groupName : routeEntry.getValue()) {
-                        expectedRbds.addAll(rbdGroups.get(groupName));
+                    for (String gName : routeEntry.getValue()) {
+                        expectedRbds.addAll(rbdGroups.get(gName));
                     }
                     Set<String> actualRbds = uploadedSectorRouteRbds.get(sector).get(route);
-                    
+
                     if (!actualRbds.equals(expectedRbds)) {
                         Set<String> missing = new HashSet<>(expectedRbds);
                         missing.removeAll(actualRbds);
                         Set<String> extra = new HashSet<>(actualRbds);
                         extra.removeAll(expectedRbds);
-                        
+
                         String errorMsg = "Sector/Route '" + sector + route + "' validation failed.";
-                        if (!missing.isEmpty()) {
-                            errorMsg += " Missing RBDs for the uploaded groups: " + missing + ".";
-                        }
-                        if (!extra.isEmpty()) {
-                            errorMsg += " Unexpected RBDs found: " + extra + ".";
-                        }
+                        if (!missing.isEmpty()) errorMsg += " Missing RBDs for the uploaded groups: " + missing + ".";
+                        if (!extra.isEmpty())   errorMsg += " Unexpected RBDs found: " + extra + ".";
                         listOfErrors.get().add(errorMsg);
                         hasGroupValidationErrors = true;
                     }
@@ -5722,13 +5754,73 @@ public class App implements CommandLineRunner {
                 throw new DataMismatchedException(listOfErrors.get());
             }
 
+            // ── Validate date ranges per (sector, route, RBD) ────────────────────
+            // Sort each SRR's ranges by startDate, then check:
+            //   1. No overlaps between consecutive ranges
+            //   2. Full coverage: today → today+365 (inclusive)
+            boolean hasDateValidationErrors = false;
+            for (Map.Entry<String, List<LocalDate[]>> entry : dateRangesPerSRR.entrySet()) {
+                String srrKey = entry.getKey();
+                List<LocalDate[]> ranges = entry.getValue();
+
+                // Sort by effective start date
+                ranges.sort(Comparator.comparing(r -> r[0]));
+
+                // --- Overlap check ---
+                for (int i = 0; i < ranges.size() - 1; i++) {
+                    LocalDate currentEnd  = ranges.get(i)[1];
+                    LocalDate nextStart   = ranges.get(i + 1)[0];
+                    // Overlap if current end >= next start
+                    if (!currentEnd.isBefore(nextStart)) {
+                        listOfErrors.get().add("Overlapping date ranges for [" + srrKey + "]: "
+                                + "range ending " + currentEnd
+                                + " overlaps with range starting " + nextStart + ".");
+                        hasDateValidationErrors = true;
+                    }
+                }
+
+                // --- 365-day coverage check ---
+                // Walk from today to windowEnd; every date must be covered by at least one range.
+                // Optimised: after sorting, scan ranges linearly.
+                LocalDate cursor = today;
+                for (LocalDate[] range : ranges) {
+                    // Gap before this range starts
+                    if (cursor.isBefore(range[0])) {
+                        listOfErrors.get().add("Date coverage gap for [" + srrKey + "]: "
+                                + "dates from " + cursor + " to " + range[0].minusDays(1) + " are not covered.");
+                        hasDateValidationErrors = true;
+                        // Advance cursor past this range anyway to find more gaps
+                    }
+                    // Advance cursor to the day after this range ends (if it moves forward)
+                    if (!range[1].isBefore(cursor)) {
+                        cursor = range[1].plusDays(1);
+                    }
+                    // Early exit: cursor already past window end
+                    if (cursor.isAfter(windowEnd)) break;
+                }
+                // Check if there is a gap at the tail (after all ranges, before windowEnd)
+                if (!cursor.isAfter(windowEnd)) {
+                    listOfErrors.get().add("Date coverage gap for [" + srrKey + "]: "
+                            + "dates from " + cursor + " to " + windowEnd + " are not covered.");
+                    hasDateValidationErrors = true;
+                }
+            }
+
+            if (hasDateValidationErrors) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            // ── Delete existing records for uploaded groups (unchanged strategy) ──
             List<Bson> deleteFilters = new ArrayList<>();
             for (Map.Entry<String, Map<String, Set<String>>> sectorEntry : fileSectorsRoutesGroups.entrySet()) {
                 String sector = sectorEntry.getKey();
                 for (Map.Entry<String, Set<String>> routeEntry : sectorEntry.getValue().entrySet()) {
                     String route = routeEntry.getKey();
-                    for (String groupName : routeEntry.getValue()) {
-                        Set<String> groupRbds = rbdGroups.get(groupName);
+                    for (String gName : routeEntry.getValue()) {
+                        Set<String> groupRbds = rbdGroups.get(gName);
                         if (groupRbds != null && !groupRbds.isEmpty()) {
                             deleteFilters.add(
                                 Filters.and(
@@ -5753,39 +5845,57 @@ public class App implements CommandLineRunner {
                 }
             }
 
+            // ── Build and execute bulk upsert (now includes startDate / endDate) ──
+            // NOTE: data was produced by createListOfMap which consumed csvData's header row.
+            // We need to re-read raw csvData rows; since createListOfMap already removed index 0,
+            // data (List<Map>) is the authoritative source for row values.
             List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
 
-            for (int i = 0; i < csvData.size(); i++) {
-                List<String> row = csvData.get(i);
-
+            for (int i = 0; i < data.size(); i++) {
+                Map<String, String> row = data.get(i);
                 try {
-                    // CWE-125: Bounds check before accessing row elements
-                    if (row.size() < 7) {
-                        listOfErrors.get().add("Line " + i + ": Insufficient columns (expected at least 7, found " + row.size() + ")");
+                    String sector   = row.getOrDefault(SECTOR_COLUMN_NAME, "").trim();
+                    String org      = row.getOrDefault("Org", "").trim();
+                    String dst      = row.getOrDefault("Dst", "").trim();
+                    String route    = row.getOrDefault(ROUTE_COLUMN_NAME, "").trim();
+                    String rbd      = row.getOrDefault(RBD_COLUMN_NAME, "").trim();
+                    String total    = row.getOrDefault("TOTAL", "").trim();
+                    String currency = row.getOrDefault("currency", "").trim();
+                    // Parse dates from MM/dd/yyyy strings → BSON Date (null if empty)
+                    // Empty depDateStart = no start bound (open); empty depDateEnd = no end bound (open).
+                    String rawStart  = row.getOrDefault(FARE_START_DATE_COLUMN_NAME, "").trim();
+                    String rawEnd    = row.getOrDefault(FARE_END_DATE_COLUMN_NAME, "").trim();
+                    Date depDateStart = parseFareDate(rawStart);  // null if empty
+                    Date depDateEnd   = parseFareDate(rawEnd);    // null if empty
+
+                    if (sector.isEmpty() || route.isEmpty() || rbd.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i + 1) + ": Insufficient core columns.");
                         continue;
                     }
-                    String sector   = row.get(0).trim();
-                    String org      = row.get(1).trim();
-                    String dst      = row.get(2).trim();
-                    String route    = row.get(3).trim();
-                    String rbd      = row.get(4).trim();
-                    String total = row.get(5).trim();
-                    String currency = row.get(6).trim();
 
-                    Document filter = new Document().append("SECTOR", sector).append("route", route).append("RBD", rbd);
+                    // Unique upsert key: SECTOR + route + RBD + depDateStart (Date or null)
+                    // MongoDB upsert on null matches doc where field is null/missing → correct
+                    Document filter = new Document()
+                            .append("SECTOR", sector)
+                            .append("route", route)
+                            .append("RBD", rbd)
+                            .append(FARE_START_DATE_COLUMN_NAME, depDateStart);
 
                     Document updateFields = new Document()
                             .append("Org", org)
                             .append("Dst", dst)
                             .append("TOTAL", autoConvert(total))
-                            .append("currency", currency);
+                            .append("currency", currency)
+                            .append(FARE_END_DATE_COLUMN_NAME, depDateEnd);
 
-                    bulkUpdates.add(new UpdateOneModel<>(filter, new Document("$set", updateFields), new UpdateOptions().upsert(true)));
+                    bulkUpdates.add(new UpdateOneModel<>(filter,
+                            new Document("$set", updateFields),
+                            new UpdateOptions().upsert(true)));
 
                 } catch (IndexOutOfBoundsException e) {
-                    listOfErrors.get().add("Line " + i + ": Insufficient columns in CSV");
+                    listOfErrors.get().add("Line " + (i + 1) + ": Insufficient columns in CSV");
                 } catch (Exception e) {
-                    listOfErrors.get().add("Line " + i + ": Error processing row - " + e.getMessage());
+                    listOfErrors.get().add("Line " + (i + 1) + ": Error processing row - " + e.getMessage());
                 }
             }
 
@@ -5812,6 +5922,7 @@ public class App implements CommandLineRunner {
             updateInputStatus(tableName);
         }
     }
+
 
     private void deleteExistingRecords(List<Document> deleteQueries, String collectionName) {
         if (deleteQueries.isEmpty()) {

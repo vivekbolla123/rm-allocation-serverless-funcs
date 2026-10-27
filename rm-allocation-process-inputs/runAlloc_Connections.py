@@ -456,7 +456,9 @@ class DynAllocConnections:
             b2c_rbd_sector2 = self.currParams.OpeningRBDB2C2
             origin = sector1[:3]
             destin = sector2[-3:]
-            qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
+            dep_date1_dt = datetime.strptime(current_date1, '%Y-%m-%d')
+            dep_date2_dt = datetime.strptime(current_date2, '%Y-%m-%d')
+            qpcurrency = self.rmdatabasehelper.get_qp_currency(origin, destin, dep_date1_dt)
             if len(qpcurrency)!=0:
                 self.qpcurrency = qpcurrency['currency'][0]
             else:
@@ -483,7 +485,7 @@ class DynAllocConnections:
                 if b2c_rbd_sector1 != CONST_NA and not pd.isna(b2c_rbd_sector1):
                     self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
                     SellingFare1,currency1 = self.rmdatabasehelper.getSellingPrice(
-                        b2c_rbd_sector1, sector1, "B2C", "L")
+                        b2c_rbd_sector1, sector1, "B2C", "L", dep_date1_dt)
                     if currency1!='INR':
                         SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                     self.outputSummaryRow_b2c.SellingFare1 = SellingFare1
@@ -492,7 +494,7 @@ class DynAllocConnections:
                 if b2c_rbd_sector2 != CONST_NA and not pd.isna(b2c_rbd_sector2):
                     self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                     SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
-                        b2c_rbd_sector2, sector2, "B2C", "L")
+                        b2c_rbd_sector2, sector2, "B2C", "L", dep_date2_dt)
                     if currency2!='INR':
                         SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
                     self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
@@ -502,7 +504,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
                 self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                 b2cSectorTotal,SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
-                    b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, B2C_CHANNEL)
+                    b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, B2C_CHANNEL, dep_date1_dt)
                 if currency1!='INR':
                     SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                 if currency2!='INR':
@@ -626,7 +628,7 @@ class DynAllocConnections:
                     if b2b_rbd_sector1 != CONST_NA and not pd.isna(b2b_rbd_sector1):
                         self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                         SellingFare1,currency1 = self.rmdatabasehelper.getSellingPrice(
-                            b2b_rbd_sector1, sector1, "B2B", "L")
+                            b2b_rbd_sector1, sector1, "B2B", "L", dep_date1_dt)
                         if currency1!='INR':
                             SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
@@ -635,7 +637,7 @@ class DynAllocConnections:
                     if b2b_rbd_sector2 != CONST_NA and not pd.isna(b2b_rbd_sector2):
                         self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
                         SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
-                            b2b_rbd_sector2, sector2, "B2B", "L")
+                            b2b_rbd_sector2, sector2, "B2B", "L", dep_date2_dt)
                         if currency2!='INR':
                             SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
@@ -656,7 +658,7 @@ class DynAllocConnections:
                             'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
                         b2bSectorTotal, SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
-                            b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, B2B_CHANNEL)
+                            b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, B2B_CHANNEL, dep_date1_dt)
                         if currency1!='INR':
                             SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                         if currency2!='INR':
@@ -1376,7 +1378,7 @@ class DynAllocConnections:
             direct_plf = float(direct_plf) if direct_plf else 0
             
             direct_fare, currency = self.rmdatabasehelper.getSellingPrice(
-                direct_rbd, f"{sector1[:3]}{sector2[3:]}", channel, "L"
+                anchor_rbd, origin + destin, channel, "L", dep_date1_dt
             )
             if currency != 'INR':
                 direct_fare = self.convert_currency(currency, 'INR', direct_fare)

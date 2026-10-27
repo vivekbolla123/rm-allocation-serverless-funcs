@@ -1557,36 +1557,63 @@ class RMDatabaseHelper:
 
         return self.currentTime
 
-    def get_qp_currency(self, origin, destin):
+    @staticmethod
+    def _fare_date_filter(dep_date):
+        """
+        Returns a MongoDB filter fragment selecting fares valid for dep_date (datetime object).
+        depDateStart / depDateEnd are stored as BSON Date (or None for open-ended).
+        Null means no bound on that side — legacy rows (null/missing fields) also match.
+        Uses plain $lte/$gte on indexed Date fields — no $expr overhead.
+        """
+        return {
+            "$or": [
+                # Both bounds present: dep_date in [depDateStart, depDateEnd]
+                {"depDateStart": {"$lte": dep_date}, "depDateEnd": {"$gte": dep_date}},
+                # No start bound (open start): only check end
+                {"depDateStart": None, "depDateEnd": {"$gte": dep_date}},
+                # No end bound (open end): only check start
+                {"depDateStart": {"$lte": dep_date}, "depDateEnd": None},
+                # Both null → no date constraint (legacy / open row)
+                {"depDateStart": None, "depDateEnd": None},
+            ]
+        }
+
+    def get_qp_currency(self, origin, destin, dep_date):
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
+            query = {"Org": origin, "Dst": destin}
+            query["$or"] = self._fare_date_filter(dep_date)["$or"]
+            results = list(self.db.fares.find(query))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def get_qp_fares(self, origin, destin):
+    def get_qp_fares(self, origin, destin, dep_date):
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
+            query = {"Org": origin, "Dst": destin}
+            query["$or"] = self._fare_date_filter(dep_date)["$or"]
+            results = list(self.db.fares.find(query))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def get_TBF_fares(self, origin, destin):
+    def get_TBF_fares(self, origin, destin, dep_date):
         is_valid = False
         tbf_rbds = TBF_RBD.split(',')
         try:
-            results = list(self.db.fares.find({
+            base_query = {
                 "Org": origin,
                 "Dst": destin,
                 "RBD": {"$in": tbf_rbds},
-                "TOTAL": {"$ne": 1}
-            }))
+                "TOTAL": {"$ne": 1},
+                "$or": self._fare_date_filter(dep_date)["$or"]
+            }
+            results = list(self.db.fares.find(base_query))
             rbddata = pd.DataFrame(results)
             is_valid = (
-                len(rbddata) >= TBF_COUNT 
-                and not (rbddata['TOTAL'] <= 0).any() 
+                len(rbddata) >= TBF_COUNT
+                and not (rbddata['TOTAL'] <= 0).any()
                 and not rbddata['TOTAL'].isnull().any()
             )
         except Exception as e:
@@ -1615,7 +1642,7 @@ class RMDatabaseHelper:
 
         return include_rbd_list
 
-    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
+    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, dep_date, strategy_criteria=None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
         if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
@@ -1624,9 +1651,10 @@ class RMDatabaseHelper:
                          'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
             return openResult, pd.DataFrame()
-        
+
+        date_or = self._fare_date_filter(dep_date)["$or"]
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route, "TOTAL": {"$ne": 1}}))
+            results = list(self.db.fares.find({"$and": [{"Org": origin, "Dst": destin, "route": route, "TOTAL": {"$ne": 1}}, {"$or": date_or}]}))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1642,13 +1670,15 @@ class RMDatabaseHelper:
         # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
         # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
-        query = {
+        date_or = self._fare_date_filter(dep_date)["$or"]
+        inner_query = {
             "Org": origin,
             "Dst": destin,
             "route": route,
             "RBD": {"$in": self.rbd_list_builder(channel)},
             "TOTAL": {"$ne": 1}
         }
+        query = {"$and": [inner_query, {"$or": date_or}]}
 
         sortorder = -1  # desc
         use_pipeline = False
@@ -1682,7 +1712,7 @@ class RMDatabaseHelper:
                 ]
                 use_pipeline = True
             else:
-                query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
+                inner_query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
         if int(offset) >= 0:
@@ -1716,9 +1746,9 @@ class RMDatabaseHelper:
                     ]
                     use_pipeline = True
                 else:
-                    query["TOTAL"] = {"$gte": int(anchorFare), "$ne": 1}
+                    inner_query["TOTAL"] = {"$gte": int(anchorFare), "$ne": 1}
             else:
-                query["TOTAL"] = {"$gte": 1000000, "$ne": 1}
+                inner_query["TOTAL"] = {"$gte": 1000000, "$ne": 1}
             sortorder = 1
 
         if self.debugMode:
@@ -1736,27 +1766,20 @@ class RMDatabaseHelper:
 
         return openResult, rbddata
 
-    def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop, route):
-        # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
-        # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
-
-        # Base query
+    def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop, route, dep_date):
+        date_or = self._fare_date_filter(dep_date)["$or"]
         query = {
-            "Org": origin,
-            "Dst": destin,
-            "route": route,
-            "RBD": {"$in": self.rbd_list_builder(channel)},
-            "TOTAL": {"$ne": 1}
+            "$and": [
+                {
+                    "Org": origin,
+                    "Dst": destin,
+                    "route": route,
+                    "RBD": {"$in": self.rbd_list_builder(channel)},
+                    "TOTAL": {"$gte": float(backstop), "$ne": 1}
+                },
+                {"$or": date_or}
+            ]
         }
-
-        # Add channel-specific regex filter
-        # if channel == 'B2C':
-        #     query["$and"].append({"RBD": {"$not": {"$regex": "^Z"}}})
-        # else:  # B2B
-        #     query["$and"].append({"RBD": {"$regex": "^Z"}})
-
-        # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
@@ -2027,8 +2050,9 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def fareExtract(self, origin, destination, channel, openingRBD, route):
-        query = {"Org": origin, "Dst": destination, "route": route}
+    def fareExtract(self, origin, destination, channel, openingRBD, route, dep_date):
+        date_or = self._fare_date_filter(dep_date)["$or"]
+        base = {"Org": origin, "Dst": destination, "route": route}
 
         if isinstance(channel, str):
             channel_list = [channel]
@@ -2039,9 +2063,12 @@ class RMDatabaseHelper:
         for ch in channel_list:
             rbd_list.extend(self.rbd_list_builder(ch.strip()))
 
-        query["RBD"] = {"$in": rbd_list}
         if openingRBD:
-            query["RBD"] = openingRBD
+            base["RBD"] = openingRBD
+        else:
+            base["RBD"] = {"$in": rbd_list}
+
+        query = {"$and": [base, {"$or": date_or}]}
 
         try:
             results = list(self.db.fares.find(query).sort("TOTAL", 1))
@@ -2185,22 +2212,19 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel):
+    def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel, dep_date):
 
         try:
-            sector1_result = self.db.fares.find_one({
-                "SECTOR": sector1,
-                "route": "L",
-                "RBD": rbd_sector1,
-                "TOTAL": {"$ne": 1}
-            })
+            date_or = self._fare_date_filter(dep_date)["$or"]
+            sector1_result = self.db.fares.find_one({"$and": [
+                {"SECTOR": sector1, "route": "L", "RBD": rbd_sector1, "TOTAL": {"$ne": 1}},
+                {"$or": date_or}
+            ]})
 
-            sector2_result = self.db.fares.find_one({
-                "SECTOR": sector2,
-                "route": "L",
-                "RBD": rbd_sector2,
-                "TOTAL": {"$ne": 1}
-            })
+            sector2_result = self.db.fares.find_one({"$and": [
+                {"SECTOR": sector2, "route": "L", "RBD": rbd_sector2, "TOTAL": {"$ne": 1}},
+                {"$or": date_or}
+            ]})
 
             if not sector1_result or not sector2_result:
                 return 0, 0, 0, "", ""
@@ -2216,16 +2240,13 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return 0, 0, 0, "", ""
 
-    def getSellingPrice(self, rbd, sector, channel, route):
+    def getSellingPrice(self, rbd, sector, channel, route, dep_date):
         try:
-            result = self.db.fares.find_one({
-                "$and": [
-                    {"SECTOR": sector},
-                    {"RBD": rbd},
-                    {"route": route},
-                    {"TOTAL": {"$ne": 1}}
-                ]
-            })
+            date_or = self._fare_date_filter(dep_date)["$or"]
+            result = self.db.fares.find_one({"$and": [
+                {"SECTOR": sector, "RBD": rbd, "route": route, "TOTAL": {"$ne": 1}},
+                {"$or": date_or}
+            ]})
 
             if not result:
                 return 0, ""
@@ -2631,20 +2652,22 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def get_CUG_fares(self, origin, destin):
+    def get_CUG_fares(self, origin, destin, dep_date):
         is_valid = False
         cug_rbds = CUG_RBD.split(',')
         try:
-            results = list(self.db.fares.find({
+            base_query = {
                 "Org": origin,
                 "Dst": destin,
                 "RBD": {"$in": cug_rbds},
-                "TOTAL": {"$ne": 1}
-            }))
+                "TOTAL": {"$ne": 1},
+                "$or": self._fare_date_filter(dep_date)["$or"]
+            }
+            results = list(self.db.fares.find(base_query))
             rbddata = pd.DataFrame(results)
             is_valid = (
-                len(rbddata) >= CUG_COUNT 
-                and not (rbddata['TOTAL'] <= 0).any() 
+                len(rbddata) >= CUG_COUNT
+                and not (rbddata['TOTAL'] <= 0).any()
                 and not rbddata['TOTAL'].isnull().any()
             )
         except Exception as e:

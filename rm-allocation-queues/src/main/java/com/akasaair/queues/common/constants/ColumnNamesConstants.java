@@ -71,4 +71,8 @@ public interface ColumnNamesConstants {
     String PERMISSION_COLUMN_NAME = "permissions";
     String USER_COLUMN_NAME = "user";
 
+    // QP Fares departure-date range columns (stored as BSON Date; null = open-ended)
+    String FARE_START_DATE_COLUMN_NAME = "depDateStart";
+    String FARE_END_DATE_COLUMN_NAME   = "depDateEnd";
+
 }

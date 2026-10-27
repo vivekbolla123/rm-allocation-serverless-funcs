@@ -62,6 +62,7 @@ class AnchorResult:
     isMarketFareAvailable: bool = False
     startTime: str = ""
     endTime: str = ""
+    dep_date_dt: Optional[Any] = None
     TimeRange: str = ""
     StrategyReference: str = ""
 
