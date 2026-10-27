@@ -1,8 +1,8 @@
 set -e
-Lmd_Func="uat-rm-allocation-serverless-funcs-rm-allocation-process-inputs"
+Lmd_Func="uat-rm-lambda-rm-allocation-process-inputs"
 ECR_Domain="891377165721.dkr.ecr.ap-south-1.amazonaws.com"
-Local_Img_Tag="test-rm-allocation-process-inputs-image"
-ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
+Local_Img_Tag="uat-rm-ecr-rm-allocation-process-inputs"
+ECR_Image_URL="$ECR_Domain/$Local_Img_Tag:latest"
 AWS_Region="ap-south-1"
 SSM_ENV="uat"
 GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
