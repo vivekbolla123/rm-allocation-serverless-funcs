@@ -185,6 +185,7 @@ class ConstantsUtils:
         self.DEFAULT_FIRST_RBD_SEATS = float(DEFAULT_FIRST_RBD_SEATS)
         self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
         self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+        self.NEXTGEN_OTHERRBD = float(NEXTGEN_OTHERRBD)
         self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(DEFAULT_STANDARD_DEVIATION_FACTOR)
         self.DEFAULT_PROMO_FARE_FACTOR = float(DEFAULT_PROMO_FARE_FACTOR)
         self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
@@ -579,6 +580,8 @@ class ConstantsUtils:
                 self.DEFAULT_FIRST_RBD_SEATS = float(parameter_value)
                 self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
                 self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+            elif parameter_key in (NEXTGEN_OTHERRBD_KEY, 'NEXTGEN_OTHERRBD'):
+                self.NEXTGEN_OTHERRBD = float(parameter_value)
             elif parameter_key in (DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', 'additional_connection_duration_NG', 'additional_connection_duration'):
                 self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(parameter_value)
             elif parameter_key in (DEFAULT_TIME_RANGE_KEY, 'DEFAULT_TIME_RANGE', 'time_range', 'TimeRange'):

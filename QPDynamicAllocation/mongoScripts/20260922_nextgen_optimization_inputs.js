@@ -394,5 +394,14 @@ if (existingDefaultMl) {
     print("Inserted DEFAULT_MARKET_LIST in rm_parameter_values");
 }
 
+// Maximum consecutive step-up (seats) allowed between successive AU_Revised /
+// filed B2C RBD allocations in the NextGen optimisation engine.
+db.rm_parameter_values.updateOne(
+    { "parameterKey": "NEXTGEN_OTHERRBD" },
+    { $set: { "feature": "misc", "parameterKey": "NEXTGEN_OTHERRBD", "parameterValue": "20" } },
+    { upsert: true }
+);
+print("Seeded NEXTGEN_OTHERRBD=20 in rm_parameter_values");
+
 print("Successfully updated market list collections and rm_parameter_values with NextGen defaults.");
 

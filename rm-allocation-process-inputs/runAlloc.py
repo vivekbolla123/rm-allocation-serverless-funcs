@@ -2738,7 +2738,19 @@ class DynAlloc:
 				AUlist.append(f'Class Allotted AU Class {i+1}')
 				AUlist.append(f'AP Restriction AU Class {i+1}')
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
-			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
+			# Drop bookkeeping columns plus any extra NextGen audit attributes that
+			# get attached to rows during NextGen optimization (nav_audit_id, etc.).
+			# These are not part of the AU grid schema, so they must be removed before
+			# AUFrame.columns is re-labelled with AUlist, otherwise the column count
+			# won't match AUlist and pandas raises a "Length mismatch" ValueError.
+			AUFrame = AUFrame.drop(
+				columns=[
+					"b2brunid", "b2crunid", "au_column_length",
+					"nav_audit_id", "nextgen_rbd_details",
+					"flight_number", "sector", "departure_date",
+				],
+				errors="ignore",
+			)
 			AUFrame.columns = AUlist
 			# Round off final AUs only in AU grid
 			for col in AUFrame.columns:
