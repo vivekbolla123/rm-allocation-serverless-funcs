@@ -322,6 +322,10 @@ class MarketFareService:
             max_fare = max(fare_list)
             min_fare_row = data[data["gross_fare"] == min_fare].iloc[[0]]
             max_fare_row = data[data["gross_fare"] == max_fare].iloc[[0]]
+        elif len(fare_l1)==1:
+            # Single fare: nothing to filter as outlier, so it is both the min and max fare
+            min_fare_row = data.iloc[[0]]
+            max_fare_row = data.iloc[[0]]
         elif len(fare_list)==0:
             return pd.DataFrame()
         else:
