@@ -1,0 +1,436 @@
+# Infrastructure-as-Code Configuration for rm-allocation-prefetch-inputs
+# Modify this file to update sizing, environment variables, or triggers.
+# Run 'python infra.py --env <uat|prod> --plan' to preview changes.
+
+version: '1.0'
+service_name: rm-allocation-prefetch-inputs
+description: Prefetch inputs service for RM dynamic allocation
+defaults:
+  memory: 2048
+  timeout: 900
+  ephemeral_storage: 4096
+  dd_service: rm-prefetch-inputs
+  dd_version: latest
+  log_retention_days: 30
+environments:
+  uat:
+    account_id: '891377165721'
+    region: ap-south-1
+    execution_role_arn: arn:aws:iam::891377165721:role/lambda-execution-role
+    lambda:
+      name: uat-rm-lambda-rm-allocation-prefetch-inputs
+      image_uri: 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-ecr-rm-allocation-prefetch-inputs:latest
+      memory: 2048
+      timeout: 900
+      ephemeral_storage: 4096
+      dd_service: rm-prefetch-inputs
+      dd_version: latest
+      log_retention_days: 30
+      env_vars: {}
+    vpc:
+      vpc_id: vpc-01452dce7b5b446e1
+      subnets:
+      - subnet-053e2b8d03017c388
+      - subnet-0a05a901a38cd5672
+      security_groups:
+      - sg-087f8184f725ec3fe
+    secrets:
+      dd_api_key_ssm: /copilot/qp/uat/secrets/DD_API_KEY
+    triggers:
+      rules:
+      - name: uat-rm-day-schedule-int-rule-1
+        schedule: cron(5 20,23,2,5,6,8,10,12,14,17 ? * * *)
+        enabled: false
+        input:
+          body:
+            start_interval: 0
+            end_interval: 45
+            run_type: Scheduled
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: uat-rm-day-schedule-int-rule-2
+        schedule: cron(50 15 ? * 3,6 *)
+        enabled: false
+        input:
+          body:
+            start_interval: 46
+            end_interval: 90
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: uat-rm-day-schedule-int-rule-3
+        schedule: cron(20 6,10,14 ? * * *)
+        enabled: false
+        input:
+          body:
+            start_interval: 91
+            end_interval: 120
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: uat-rm-day-schedule-int-rule-4
+        schedule: cron(0 2,8,13 * * ? *)
+        enabled: false
+        input:
+          body:
+            start_interval: 121
+            end_interval: 365
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: uat-rm-day-schedule-rule-1
+        schedule: cron(45 0-17/1,22,23 * * ? *)
+        enabled: false
+        input:
+          body:
+            start_interval: 0
+            end_interval: 7
+            run_type: Scheduled
+      - name: uat-rm-day-schedule-rule-2
+        schedule: cron(35 21,23,1,3,5,7,9,11,13,15,17,19 * * ? *)
+        enabled: false
+        input:
+          body:
+            start_interval: 8
+            end_interval: 14
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            region_method: Domestic
+      - name: uat-rm-day-schedule-rule-3
+        schedule: cron(30 21,1,5,9,17 * * ? *)
+        enabled: false
+        input:
+          body:
+            start_interval: 15
+            end_interval: 21
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            region_method: Domestic
+      - name: uat-rm-day-schedule-rule-4
+        schedule: cron(30 23,5,9 * * ? *)
+        enabled: false
+        input:
+          body:
+            start_interval: 22
+            end_interval: 90
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            region_method: Domestic
+      - name: uat-rm-day-schedule-rule-5
+        schedule: cron(0 21 * * ? *)
+        enabled: false
+      - name: uat-rm-day-schedule-rule-6
+        schedule: cron(0 21 ? * MON,FRI *)
+        enabled: false
+      - name: uat-rm-day-schedule-rule-7
+        schedule: cron(0 21 ? * TUE,SAT *)
+        enabled: false
+      - name: uat-rm-day-schedule-rule-8
+        schedule: cron(0 21 ? * SUN,WED *)
+        enabled: false
+      - name: uat-rm-day-schedule-rule-9
+        schedule: cron(0 21 ? * THU *)
+        enabled: false
+  prod:
+    account_id: '471112573018'
+    region: ap-south-1
+    execution_role_arn: ''
+    lambda:
+      name: prod-rm-lambda-rm-allocation-prefetch-inputs
+      image_uri: 471112573018.dkr.ecr.ap-south-1.amazonaws.com/prod-rm-ecr-rm-allocation-prefetch-inputs:latest
+      memory: 2048
+      timeout: 900
+      ephemeral_storage: 4096
+      dd_service: rm-prefetch-inputs
+      dd_version: latest
+      log_retention_days: 90
+      env_vars: {}
+    vpc:
+      vpc_id: vpc-07b9a52de9cb71261
+      subnets:
+      - subnet-0123456789abcdef0
+      - subnet-0123456789abcdef1
+      security_groups:
+      - sg-0123456789abcdef0
+    secrets:
+      dd_api_key_ssm: /copilot/qp/prod/secrets/DD_API_KEY
+    triggers:
+      rules:
+      - name: rm-day-schedule-conn-rule-1
+        schedule: cron(0 0/3 * * ? *)
+        enabled: true
+        description: 0-7
+        input:
+          body:
+            start_interval: 0
+            end_interval: 7
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-10
+        schedule: cron(0 12,15,17 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 46
+            end_interval: 90
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-2
+        schedule: cron(15 0/4 * * ? *)
+        enabled: true
+        description: 8-14
+        input:
+          body:
+            start_interval: 8
+            end_interval: 14
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-3
+        schedule: cron(50 1,5,9,17 * * ? *)
+        enabled: true
+        description: 15-21
+        input:
+          body:
+            start_interval: 15
+            end_interval: 21
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-4
+        schedule: cron(50 5,23,9 * * ? *)
+        enabled: true
+        description: 22-90
+        input:
+          body:
+            start_interval: 22
+            end_interval: 45
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-5
+        schedule: cron(50 15 ? * 3,6 *)
+        enabled: true
+        description: 91-120
+        input:
+          body:
+            start_interval: 91
+            end_interval: 120
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-6
+        schedule: cron(55 15 ? * 7 *)
+        enabled: true
+        description: 121-180
+        input:
+          body:
+            start_interval: 121
+            end_interval: 180
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-7
+        schedule: cron(55 15 ? * 1 *)
+        enabled: true
+        description: 181-240
+        input:
+          body:
+            start_interval: 181
+            end_interval: 240
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-8
+        schedule: cron(55 15 ? * 2 *)
+        enabled: true
+        description: 241-300
+        input:
+          body:
+            start_interval: 241
+            end_interval: 300
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-conn-rule-9
+        schedule: cron(30 22 ? * 1 *)
+        enabled: true
+        description: 301-365
+        input:
+          body:
+            start_interval: 301
+            end_interval: 365
+            run_type: Scheduled_Connections
+            update_navitaire_method: sftp
+            market_list_table_name: market_list_connections
+            route_type: connections
+      - name: rm-day-schedule-int-rule-1
+        schedule: cron(30 0,4,8,12,16,20 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 0
+            end_interval: 7
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: rm-day-schedule-int-rule-3
+        schedule: cron(50 2,6,10,14,18,22 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 0
+            end_interval: 30
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: rm-day-schedule-int-rule-4
+        schedule: cron(30 4,9,14 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 31
+            end_interval: 90
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: rm-day-schedule-int-rule-7
+        schedule: cron(15 14 ? * 6 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 121
+            end_interval: 365
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list_international
+            region_method: International
+      - name: rm-day-schedule-rule-1
+        schedule: cron(45 * * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 0
+            end_interval: 7
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+      - name: rm-day-schedule-rule-10
+        schedule: cron(15 12,15,17 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 46
+            end_interval: 90
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+      - name: rm-day-schedule-rule-2
+        schedule: cron(35 22,00,2,4,6,8,10,12,14,16,18,20 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 8
+            end_interval: 14
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+      - name: rm-day-schedule-rule-3
+        schedule: cron(30 1,5,9,17 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 15
+            end_interval: 21
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            region_method: Domestic
+      - name: rm-day-schedule-rule-4
+        schedule: cron(0 2,8,13 * * ? *)
+        enabled: true
+        input:
+          body:
+            start_interval: 22
+            end_interval: 45
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            region_method: Domestic
+      - name: rm-day-schedule-rule-5
+        schedule: cron(30 15 ? * 3,6 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 91
+            end_interval: 120
+            run_type: Scheduled
+            update_navitaire_method: sftp
+      - name: rm-day-schedule-rule-6
+        schedule: cron(30 15 ? * 7 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 121
+            end_interval: 180
+            run_type: Scheduled
+            update_navitaire_method: sftp
+      - name: rm-day-schedule-rule-7
+        schedule: cron(30 15 ? * 1 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 181
+            end_interval: 240
+            run_type: Scheduled
+            update_navitaire_method: sftp
+      - name: rm-day-schedule-rule-8
+        schedule: cron(30 15 ? * 2 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 241
+            end_interval: 300
+            run_type: Scheduled
+            update_navitaire_method: sftp
+      - name: rm-day-schedule-rule-9
+        schedule: cron(30 20 ? * 1 *)
+        enabled: true
+        input:
+          body:
+            start_interval: 301
+            end_interval: 365
+            run_type: Scheduled
+            update_navitaire_method: sftp
+      - name: rm-day-schedule-rule-cug
+        schedule: cron(20 3 * * ? *)
+        enabled: true
+        description: rm-day-schedule-rule-cug
+        input:
+          body:
+            start_interval: 10
+            end_interval: 30
+            run_type: Scheduled
+            update_navitaire_method: api
+            market_list_table_name: market_list
+            cug_alloc: '1'
