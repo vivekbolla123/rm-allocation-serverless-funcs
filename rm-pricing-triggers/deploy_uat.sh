@@ -1,8 +1,9 @@
 set -e
-Lmd_Func="uat-rm-allocation-serverless-funcs-rm-pricing-triggers"
+Lmd_Func="uat-rm-lambda-rm-pricing-triggers"
+ECR_Repo="uat-rm-ecr-rm-pricing-triggers"
 ECR_Domain="891377165721.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="test-rm-pricing-triggers-image"
-ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
+ECR_Image_URL="$ECR_Domain/$ECR_Repo:latest"
 AWS_Region="ap-south-1"
 SSM_ENV="uat"
 GIT_COMMIT_SHA=$(git rev-parse --short HEAD)

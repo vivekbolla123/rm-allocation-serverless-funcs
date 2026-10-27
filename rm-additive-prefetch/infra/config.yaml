@@ -1,0 +1,74 @@
+# Infrastructure-as-Code Configuration for rm-additive-prefetch
+# Modify this file to update sizing, environment variables, or triggers.
+# Run 'python infra.py --env <uat|prod> --plan' to preview changes.
+
+version: '1.0'
+service_name: rm-additive-prefetch
+description: Additive prefetch handler for RM additive model
+defaults:
+  memory: 2048
+  timeout: 900
+  ephemeral_storage: 2048
+  dd_service: rm-additive-process
+  dd_version: latest
+  log_retention_days: 30
+environments:
+  uat:
+    account_id: '891377165721'
+    region: ap-south-1
+    execution_role_arn: arn:aws:iam::891377165721:role/lambda-execution-role
+    lambda:
+      name: uat-rm-lambda-rm-additive-prefetch
+      image_uri: 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-ecr-rm-additive-prefetch:latest
+      memory: 2048
+      timeout: 900
+      ephemeral_storage: 2048
+      dd_service: rm-additive-process
+      dd_version: latest
+      log_retention_days: 30
+      env_vars: {}
+    vpc:
+      vpc_id: vpc-01452dce7b5b446e1
+      subnets:
+      - subnet-053e2b8d03017c388
+      - subnet-0a05a901a38cd5672
+      security_groups:
+      - sg-087f8184f725ec3fe
+    secrets:
+      dd_api_key_ssm: /copilot/qp/uat/secrets/DD_API_KEY
+    triggers: {}
+  prod:
+    account_id: '471112573018'
+    region: ap-south-1
+    execution_role_arn: ''
+    lambda:
+      name: prod-rm-lambda-rm-additive-prefetch
+      image_uri: 471112573018.dkr.ecr.ap-south-1.amazonaws.com/prod-rm-ecr-rm-additive-prefetch:latest
+      memory: 2048
+      timeout: 900
+      ephemeral_storage: 2048
+      dd_service: rm-additive-process
+      dd_version: latest
+      log_retention_days: 90
+      env_vars: {}
+    vpc:
+      vpc_id: vpc-07b9a52de9cb71261
+      subnets:
+      - subnet-0123456789abcdef0
+      - subnet-0123456789abcdef1
+      security_groups:
+      - sg-0123456789abcdef0
+    secrets:
+      dd_api_key_ssm: /copilot/qp/prod/secrets/DD_API_KEY
+    triggers:
+      schedules:
+      - name: rm-additive-schedule-daily
+        schedule: cron(30 8 * * ? *)
+        timezone: Asia/Calcutta
+        enabled: true
+        input:
+          modules:
+            additive_prefetch: 1
+          overrides:
+            mode: PROD
+            analyst: SYS
