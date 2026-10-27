@@ -1235,34 +1235,99 @@ class RMDatabaseHelper:
         import re
 
         sec_clean = str(sector).replace('/', '') if sector else ''
-        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        dep_str_iso = None
+        dep_candidates = set()
+        if departure_date is not None:
+            try:
+                dep_dt = pd.to_datetime(departure_date)
+                dep_str_iso = dep_dt.strftime('%Y-%m-%d')
+                dep_candidates.add(dep_str_iso)
+                dep_candidates.add(dep_dt.strftime('%m/%d/%Y'))
+                dep_candidates.add(dep_dt.strftime('%d/%m/%Y'))
+                dep_candidates.add(f"{dep_str_iso}T00:00:00")
+                dep_candidates.add(f"{dep_str_iso} 00:00:00")
+                try:
+                    dep_candidates.add(dep_dt.to_pydatetime())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            dep_candidates.add(str(departure_date).strip())
+        dep_str = dep_str_iso
+
         flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
         flt_int = int(flt_digits) if flt_digits else None
+        flt_candidates = set()
+        if flt_int is not None:
+            flt_candidates.add(flt_int)
+            flt_candidates.add(str(flt_int))
+            flt_candidates.add(f"QP{flt_int}")
+            flt_candidates.add(f"QP {flt_int}")
+        if flight_number is not None:
+            flt_candidates.add(str(flight_number).strip())
 
         # 1. Primary: Read directly from MongoDB collection add_model_fare_bucket_level_weighted
         if hasattr(self, 'db') and self.db is not None:
             try:
                 col = getattr(self.db, 'add_model_fare_bucket_level_weighted', None)
+                if col is None and hasattr(self.db, '__getitem__'):
+                    try:
+                        col = self.db['add_model_fare_bucket_level_weighted']
+                    except Exception:
+                        col = None
+
                 if col is not None:
-                    q = {}
+                    sector_or = []
                     if sector:
-                        q["$or"] = [
+                        sector_or.extend([
                             {"Sector": sector},
                             {"Sector": sec_clean},
                             {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
-                        ]
-                    docs = list(col.find(q))
+                        ])
+
+                    conditions = []
+                    if sector_or:
+                        conditions.append({"$or": sector_or})
+                    if dep_candidates:
+                        date_or = [{"DepartureDate": {"$in": list(dep_candidates)}}]
+                        if dep_str_iso:
+                            date_or.append({"DepartureDate": {"$regex": f"^{dep_str_iso}"}})
+                        conditions.append({"$or": date_or})
+                    if flt_candidates:
+                        conditions.append({"FlightNumber": {"$in": list(flt_candidates)}})
+
+                    q = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else {})
+                    # Exclude the 181 heavy NDO columns 0..180 and _id to keep network payload minimal
+                    projection = {str(i): 0 for i in range(181)}
+                    projection['_id'] = 0
+
+                    docs = list(col.find(q, projection))
+                    if not docs and flt_candidates and len(conditions) > 1:
+                        # Fallback query without flight number filter in MongoDB, filter in Python instead
+                        q_noflt = {"$and": [c for c in conditions if "FlightNumber" not in c]}
+                        docs = list(col.find(q_noflt, projection))
+                    if not docs and sector_or:
+                        # Broadest fallback if date was formatted unexpectedly
+                        docs = list(col.find({"$or": sector_or}, projection))
+
                     if docs:
                         df = pd.DataFrame(docs)
                         if '_id' in df.columns:
                             df = df.drop(columns=['_id'])
-                        if dep_str and 'DepartureDate' in df.columns:
-                            df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
+                        if dep_str_iso and 'DepartureDate' in df.columns:
+                            dep_series = pd.to_datetime(df['DepartureDate'], errors='coerce').dt.strftime('%Y-%m-%d')
+                            df_date = df[
+                                (dep_series == dep_str_iso)
+                                | (df['DepartureDate'].astype(str).str.startswith(dep_str_iso))
+                                | (df['DepartureDate'].astype(str).isin(dep_candidates))
+                            ]
+                            if not df_date.empty:
+                                df = df_date
                         if flt_int and 'FlightNumber' in df.columns:
                             flt_match = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
                             if not flt_match.empty:
                                 return flt_match
-                        if not df.empty:
+                        if not df.empty and (flt_int is None or 'FlightNumber' not in df.columns):
                             return df
             except Exception as e:
                 self.logger.warning(f"Could not query MongoDB collection add_model_fare_bucket_level_weighted: {e}")

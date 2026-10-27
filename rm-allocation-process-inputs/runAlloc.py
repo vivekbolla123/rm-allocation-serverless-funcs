@@ -1598,26 +1598,9 @@ class DynAlloc:
 								'FareBucket_Upper': to_float(b_upper, None) if pd.notna(b_upper) else None,
 							})
 					else:
-						# Fallback when weighted forecast is unavailable: 19 filed RBDs
-						for idx, rbd_row in B2CRBDs_ladder.iterrows():
-							raw_fare = to_float(rbd_row.get('TOTAL', rbd_row.get('Total', rbd_row.get('fare', 0.0))), 0.0)
-							# Fares in Mongo fares collection are all-in; convert to airline component for NextGen optimization
-							if hasattr(self, 'tax_helper') and self.tax_helper:
-								fare_val = self.tax_helper.allin_to_airline_component(
-									raw_fare, self.currParams.origin, self.currParams.destin,
-									route=getattr(self.currParams, 'route', None)
-								)
-							else:
-								fare_val = raw_fare
-							rbd_code = str(rbd_row.get('RBD', f'RBD_{idx}'))
-							var_float = to_float(variance_full, 10.0)
-							mu_val = max(0.0, var_float / max(1, len(B2CRBDs_ladder))) if var_float > 0 else 0.0
-							ladder_data.append({
-								'FareBucket': rbd_code,
-								'fare': fare_val,
-								'mu': mu_val,
-								'sigma': 0.25 * mu_val
-							})
+						# Fallback when weighted forecast is unavailable: construct 18 standard GP fare bucket intervals
+						# from the filed B2C ladder (resulting in 18 intervals + 1 promo = 19 records, with actual interval values).
+						ladder_data = self._generate_fallback_18_gp_fare_buckets(B2CRBDs_ladder, variance_full)
 					ladder_df = pd.DataFrame(ladder_data).sort_values('fare', ascending=False).reset_index(drop=True)
 
 					# STD (departure time) is always sourced from the weighted file if available,
@@ -2110,6 +2093,93 @@ class DynAlloc:
 		state.Af_Nb_Allin = Af_Nb_Allin
 		state.profileExtract_df_fullalloc = profileExtract_df_fullalloc
 		state.profileFares_list_sorted_fullalloc = profileFares_list_sorted_fullalloc
+
+	def _generate_fallback_18_gp_fare_buckets(self, b2c_ladder_df, variance_full):
+		"""
+		Construct fallback 18 Geometric Progression (GP) fare bucket intervals
+		from the filed B2C ladder when the weighted forecast is missing/empty.
+
+		Guarantees exactly 18 fare bucket intervals (which, together with the 1 promo
+		class, yield the regular 19 records in inventory_optimization), with actual
+		bucket interval values ('lower-upper', 'lower+') rather than raw RBD codes.
+		"""
+		if b2c_ladder_df is None or b2c_ladder_df.empty:
+			return []
+
+		fare_col = next((c for c in ['fare', 'TOTAL', 'Fare', 'total', 'Amount'] if c in b2c_ladder_df.columns), None)
+		if not fare_col:
+			return []
+
+		fare_values = sorted([float(x) for x in b2c_ladder_df[fare_col].dropna().unique() if float(x) > 0])
+		if not fare_values:
+			return []
+
+		# Determine 18 boundary points using Geometric Progression (GP)
+		# To get 18 buckets (17 intervals + 1 open-ended), we need 18 boundary points: b_0, ..., b_17
+		g1 = float(fare_values[0])
+		g_top = float(fare_values[-1])
+		if g1 <= 0:
+			g1 = 1.0
+
+		target_points = 18
+		matched_fares = []
+		if len(fare_values) >= target_points:
+			common_ratio = (g_top / g1) ** (1.0 / float(target_points - 1)) if g_top > g1 else 1.0
+			gp_values = [g1 * (common_ratio ** i) for i in range(target_points)]
+
+			fare_arr = np.array(fare_values, dtype=float)
+			for gp_val in gp_values:
+				diffs = np.abs(fare_arr - gp_val)
+				closest_idx = diffs.argmin()
+				matched_fares.append(float(fare_arr[closest_idx]))
+
+			# Remove duplicates to ensure strictly increasing
+			matched_fares = sorted(list(set(matched_fares)))
+			if len(matched_fares) < target_points:
+				# Use evenly spaced indices across sorted unique filed fares
+				indices = np.round(np.linspace(0, len(fare_values) - 1, target_points)).astype(int)
+				matched_fares = sorted(list(set([float(fare_values[i]) for i in indices])))
+
+		if len(fare_values) < target_points or len(matched_fares) < target_points:
+			if g_top <= g1:
+				g_top = g1 * 2.0
+			ratio = (g_top / g1) ** (1.0 / float(target_points - 1))
+			matched_fares = [round(g1 * (ratio ** i), 0) for i in range(target_points)]
+			for i in range(1, len(matched_fares)):
+				if matched_fares[i] <= matched_fares[i - 1]:
+					matched_fares[i] = matched_fares[i - 1] + 1.0
+
+		var_float = to_float(variance_full, 0.0)
+		pax_val = (var_float / 18.0) if var_float > 0 else 0.0
+		std_val = 0.25 * pax_val
+
+		ladder_data = []
+		n_matched = len(matched_fares)
+		# Construct 17 interval buckets: [lower, upper)
+		for i in range(n_matched - 1):
+			lower = int(round(matched_fares[i]))
+			upper = int(round(matched_fares[i + 1]))
+			ladder_data.append({
+				'FareBucket': f"{lower}-{upper}",
+				'fare': float(lower),
+				'mu': pax_val,
+				'sigma': std_val,
+				'FareBucket_Lower': float(lower),
+				'FareBucket_Upper': float(upper),
+			})
+
+		# 18th bucket: open-ended top bucket [top, +inf)
+		top_lower = int(round(matched_fares[-1]))
+		ladder_data.append({
+			'FareBucket': f"{top_lower}+",
+			'fare': float(top_lower),
+			'mu': pax_val,
+			'sigma': std_val,
+			'FareBucket_Lower': float(top_lower),
+			'FareBucket_Upper': None,
+		})
+
+		return ladder_data
 
 	def _phaseM_pushNavitaire(self, state):
 		"""Phase M — push the AU grid row to Navitaire via the configured method
