@@ -2200,7 +2200,7 @@ class RMDatabaseHelper:
 
     def get_qp_fares(self, origin, destin):
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "TOTAL": {"$gt": 1}}))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -2673,7 +2673,7 @@ class RMDatabaseHelper:
             return pd.DataFrame()
 
     def fareExtract(self, origin, destination, channel, openingRBD, route):
-        query = {"Org": origin, "Dst": destination, "route": route}
+        query = {"Org": origin, "Dst": destination, "route": route, "TOTAL": {"$gt": 1}}
 
         if isinstance(channel, str):
             channel_list = [channel]

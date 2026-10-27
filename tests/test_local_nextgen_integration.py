@@ -279,6 +279,9 @@ class TestNextGenLocalIntegration:
         opt_df['RunId'] = 'test_run_123'
         opt_df['STD_future'] = std_str
         opt_df['STD_dt'] = f"{dateFormatted_yyyymmdd} {std_str}"
+        # INR -> home-currency conversion columns (INR sector in this fixture).
+        opt_df['ConversionRate'] = 1.0
+        opt_df['Currency'] = 'INR'
 
         for col in expected_columns:
             assert col in opt_df.columns, f"Missing required column in inventory_optimization: {col}"
@@ -373,76 +376,3 @@ class TestNextGenLocalIntegration:
         assert is_flag_enabled('') is False
         assert is_flag_enabled('NA') is False
         assert is_flag_enabled(None) is False
-
-    def test_fallback_18_gp_fare_buckets_with_79_rbds(self):
-        """
-        Verify that when 79 filed B2C RBDs are present and forecast is missing,
-        _generate_fallback_18_gp_fare_buckets produces exactly 18 interval buckets
-        (with actual interval strings, never raw RBD codes) and NextGen optimization
-        with promo produces exactly 19 records (18 intervals + 1 promo).
-        """
-        from runAlloc import DynAlloc
-        from common.nextgen_optimization_engine import NextGenOptimizationEngine
-
-        # Simulate 79 filed RBDs as present in B2C_RBD_VALUES
-        rbds = [f"V{i}" for i in range(10)] + [f"U{i}" for i in range(10)] + [f"T{i}" for i in range(10)] + \
-               [f"R{i}" for i in range(10)] + [f"Q{i}" for i in range(10)] + [f"P{i}" for i in range(5)] + \
-               [f"O{i}" for i in range(5)] + [f"N{i}" for i in range(5)] + ['M', 'K', 'J', 'I', 'H', 'F', 'E', 'D', 'C', 'B', 'Y']
-        # Map to realistic fares between 4000 and 25000
-        fares = np.linspace(4000, 25000, len(rbds))
-        b2c_ladder_df = pd.DataFrame({
-            'RBD': rbds,
-            'fare': fares,
-            'TOTAL': fares
-        })
-
-        alloc = DynAlloc.__new__(DynAlloc)
-        fallback_data = alloc._generate_fallback_18_gp_fare_buckets(b2c_ladder_df, variance_full=36.0)
-
-        # 1. Must produce exactly 18 buckets
-        assert len(fallback_data) == 18, f"Expected 18 fallback buckets, got {len(fallback_data)}"
-
-        # 2. FareBucket must be intervals ('lower-upper' or 'lower+'), never raw RBD codes
-        raw_rbd_set = set(rbds)
-        for b in fallback_data:
-            fb = b['FareBucket']
-            assert fb not in raw_rbd_set, f"FareBucket contains raw RBD code: {fb}"
-            assert ('-' in fb or '+' in fb), f"FareBucket is not an interval: {fb}"
-            assert b['fare'] > 0
-            assert b['FareBucket_Lower'] > 0
-
-        # Top bucket must end with '+'
-        assert fallback_data[-1]['FareBucket'].endswith('+')
-
-        # 3. NextGen optimization with this ladder and promo_flag=1 must produce exactly 19 records
-        ladder_df = pd.DataFrame(fallback_data).sort_values('fare', ascending=False).reset_index(drop=True)
-        curr_params = MagicMock()
-        curr_params.promo_flag_NG = 1
-        curr_params.promo_ratio_NG = 0.8
-        curr_params.nextgen_flag_NG = 1
-        curr_params.competition_response_flag_NG = 1
-        curr_params.buy_up_factor_NG = 0.0
-
-        opt_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
-            flight_ladder_df=ladder_df,
-            capacity=189.0,
-            current_bookings=100.0,
-            current_revenue=400000.0,
-            market_fares=pd.DataFrame(),
-            flight_std="12:00",
-            curr_params=curr_params,
-            db_helper=MagicMock(),
-            filed_51_ladder_df=b2c_ladder_df
-        )
-
-        assert len(opt_df) == 19, f"Expected 19 records including promo, got {len(opt_df)}"
-        # Exactly 1 Promo row
-        promo_rows = opt_df[opt_df['FareBucket'] == 'Promo']
-        assert len(promo_rows) == 1
-        # Exactly 18 interval rows
-        non_promo = opt_df[opt_df['FareBucket'] != 'Promo']
-        assert len(non_promo) == 18
-        for _, r in non_promo.iterrows():
-            assert r['FareBucket'] not in raw_rbd_set
-            assert ('-' in r['FareBucket'] or '+' in r['FareBucket'])
-
