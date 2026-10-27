@@ -279,9 +279,6 @@ class TestNextGenLocalIntegration:
         opt_df['RunId'] = 'test_run_123'
         opt_df['STD_future'] = std_str
         opt_df['STD_dt'] = f"{dateFormatted_yyyymmdd} {std_str}"
-        # INR -> home-currency conversion columns (INR sector in this fixture).
-        opt_df['ConversionRate'] = 1.0
-        opt_df['Currency'] = 'INR'
 
         for col in expected_columns:
             assert col in opt_df.columns, f"Missing required column in inventory_optimization: {col}"

@@ -34,9 +34,9 @@ class TestAdditiveGlueSync:
         })
 
     def test_inventory_ng_columns_count_and_order(self, sample_fare_bucket_df):
-        """Verify that the Glue script produces all 52 INVENTORY_NG_COLUMNS in exact order."""
+        """Verify that the Glue script produces all 50 INVENTORY_NG_COLUMNS in exact order."""
         out_df = glue_sync.compute_inventory_ng_df(sample_fare_bucket_df)
-        assert len(out_df.columns) == 52
+        assert len(out_df.columns) == 50
         assert out_df.columns.tolist() == glue_sync.INVENTORY_NG_COLUMNS
         assert len(out_df) == 4
         assert out_df['sector'].iloc[0] == 'BOMDEL'
