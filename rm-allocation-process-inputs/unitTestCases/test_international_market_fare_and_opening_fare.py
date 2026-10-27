@@ -149,7 +149,7 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
 
     @patch('runAlloc.DynAlloc.calculate_averages', return_value=(4000, 4200, 4100))
     def test_run_alloc_phase_i_last_sold_fare_bomjed_fallback(self, mock_calc_avg):
-        """Verify BOMJED uses last run opening fare from Redis when market fare is missing."""
+        """Verify BOMJED uses last run opening fare from Redis for last7avg when market fare is missing, keeping last sold intact."""
         from runAlloc import DynAlloc
         from models.flight_state import FlightState
         from models.output_summary import OutputSummary
@@ -195,7 +195,7 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
         run_alloc.outputSummaryRow_b2c = OutputSummary()
         run_alloc.outputSummaryRow_b2b = OutputSummary()
 
-        # CASE 1: Market fare IS NOT available for BOMJED -> Override with last run opening fare from Redis
+        # CASE 1: Market fare IS NOT available for BOMJED -> Override last_seven_avg_val with last run opening fare from Redis
         state1 = FlightState(
             currFlt=1101,
             currBookedLoad=50,
@@ -216,10 +216,11 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
         run_alloc.outputSummaryRow_b2b.MktFare_Min = 0
 
         run_alloc._phaseI_lastSoldFare(state1)
-        self.assertEqual(state1.lastSoldFareb2c_val, 7200.0)
-        self.assertEqual(state1.lastSoldFareb2b_val, 7200.0)
+        self.assertEqual(state1.last_seven_avg_val, 7200.0)
+        self.assertEqual(state1.lastSoldFareb2c_val, 5000)
+        self.assertEqual(state1.lastSoldFareb2b_val, 4900)
 
-        # CASE 2: Market fare IS available for BOMJED -> Do NOT override, keep actual last sold fare
+        # CASE 2: Market fare IS available for BOMJED -> Do NOT override, keep actual last7avg and last sold fare
         state2 = FlightState(
             currFlt=1101,
             currBookedLoad=50,
@@ -240,6 +241,7 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
         run_alloc.outputSummaryRow_b2b.MktFare_Min = 6400
 
         run_alloc._phaseI_lastSoldFare(state2)
+        self.assertEqual(state2.last_seven_avg_val, 4800)
         self.assertEqual(state2.lastSoldFareb2c_val, 5000)
         self.assertEqual(state2.lastSoldFareb2b_val, 4900)
 
@@ -266,6 +268,7 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
         run_alloc.outputSummaryRow_b2b.MktFare_Min = 0
 
         run_alloc._phaseI_lastSoldFare(state3)
+        self.assertEqual(state3.last_seven_avg_val, 4800)
         self.assertEqual(state3.lastSoldFareb2c_val, 5000)
         self.assertEqual(state3.lastSoldFareb2b_val, 4900)
 
@@ -297,8 +300,9 @@ class TestInternationalMarketFareAndOpeningFare(unittest.TestCase):
         run_alloc.outputSummaryRow_b2b.MktFare_Min = 0
 
         run_alloc._phaseI_lastSoldFare(state4)
-        self.assertEqual(state4.lastSoldFareb2c_val, 7450.0)
-        self.assertEqual(state4.lastSoldFareb2b_val, 7450.0)
+        self.assertEqual(state4.last_seven_avg_val, 7450.0)
+        self.assertEqual(state4.lastSoldFareb2c_val, 5000)
+        self.assertEqual(state4.lastSoldFareb2b_val, 4900)
 
 
 if __name__ == '__main__':

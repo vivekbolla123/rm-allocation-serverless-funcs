@@ -1018,20 +1018,12 @@ class DynAlloc:
 
 		if current_sector in configured_sectors_set:
 			is_b2c_mkt_missing = (not getattr(state, 'isB2CMarketFareAvailable', False)) or (str(getattr(self.outputSummaryRow_b2c, 'MktFare_Min', '0')) in ('0', '0.0', CONST_NA, 'None', 'Market Fare not found', ''))
-			if is_b2c_mkt_missing:
-				last_run_opening_b2c = self._get_last_run_opening_fare(state, channel=B2C_CHANNEL)
-				if last_run_opening_b2c is not None:
-					self.logger.info(f"Sector {current_sector} configured in LAST_RUN_OPENING_FARE_SECTORS and B2C market fare missing. Overriding lastSoldFareb2c ({lastSoldFareb2c_val}) with last run opening fare ({last_run_opening_b2c}).")
-					lastSoldFareb2c_val = last_run_opening_b2c
-
 			is_b2b_mkt_missing = (not getattr(state, 'isB2BMarketFareAvailable', False)) or (str(getattr(self.outputSummaryRow_b2b, 'MktFare_Min', '0')) in ('0', '0.0', CONST_NA, 'None', 'Market Fare not found', ''))
-			if is_b2b_mkt_missing:
-				last_run_opening_b2b = self._get_last_run_opening_fare(state, channel=B2B_CHANNEL)
-				if last_run_opening_b2b is None and is_b2c_mkt_missing:
-					last_run_opening_b2b = last_run_opening_b2c
-				if last_run_opening_b2b is not None:
-					self.logger.info(f"Sector {current_sector} configured in LAST_RUN_OPENING_FARE_SECTORS and B2B market fare missing. Overriding lastSoldFareb2b ({lastSoldFareb2b_val}) with last run opening fare ({last_run_opening_b2b}).")
-					lastSoldFareb2b_val = last_run_opening_b2b
+			if is_b2c_mkt_missing or is_b2b_mkt_missing:
+				last_run_opening = self._get_last_run_opening_fare(state)
+				if last_run_opening is not None:
+					self.logger.info(f"Sector {current_sector} configured in LAST_RUN_OPENING_FARE_SECTORS and market fare missing. Overriding last_seven_avg_val ({last_seven_avg_val}) with last run opening fare ({last_run_opening}).")
+					last_seven_avg_val = last_run_opening
 
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
