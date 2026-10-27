@@ -1,6 +1,5 @@
 set -e
-Lmd_Func="
-uat-rm-lambda-rm-allocation-process-inputs"
+Lmd_Func="uat-rm-lambda-rm-allocation-process-inputs"
 ECR_Domain="891377165721.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="uat-rm-ecr-rm-allocation-process-inputs"
 ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
