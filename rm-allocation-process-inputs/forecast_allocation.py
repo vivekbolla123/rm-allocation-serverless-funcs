@@ -446,8 +446,9 @@ class ForecastAllocationLogic:
         """Resolve LSF.
 
         Per Change Notes – 3, LSF is the maximum of the Last 3 and Last 7 fares when
-        either is supplied. When neither is available, falls back to ``lastSoldFare``
-        and finally to the average of N previous run selling fares.
+        either is supplied. When neither is available, falls back to ``lastSoldFare``.
+        The historical selling-fare average fallback has been disabled (it could
+        feed a run-to-run inflation loop), so LSF is None when no fare is available.
 
         Returns: (lsf_value, is_fallback_used)
         """

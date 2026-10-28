@@ -392,7 +392,8 @@ class TestForecastAllocationLogic(unittest.TestCase):
         self.assertAlmostEqual(delta, -1.5)
 
     def test_resolve_lsf_fallback(self):
-        # When LSF is NA, use average of last N selling fares in history
+        # The history-average fallback has been removed: when Last 3 / Last 7 and
+        # lastSoldFare are all unavailable, resolve_lsf returns None (no fallback).
         history = [
             {"selling_fare": 4000.0},
             {"selling_fare": 4200.0},
@@ -400,8 +401,20 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"selling_fare": 4600.0},
         ]
         lsf, is_fallback = self.logic.resolve_lsf("NA", history, n_runs=4)
-        self.assertTrue(is_fallback)
-        self.assertAlmostEqual(lsf, 4300.0)
+        self.assertFalse(is_fallback)
+        self.assertIsNone(lsf)
+
+    def test_resolve_lsf_prefers_max_of_last3_last7(self):
+        # LSF = Max(Last 3, Last 7) when available.
+        lsf, is_fallback = self.logic.resolve_lsf("NA", None, last3Fare=4200.0, last7Fare=4500.0)
+        self.assertFalse(is_fallback)
+        self.assertAlmostEqual(lsf, 4500.0)
+
+    def test_resolve_lsf_uses_lastsoldfare_when_no_last3_last7(self):
+        # Falls back to lastSoldFare (not history) when Last 3 / Last 7 are missing.
+        lsf, is_fallback = self.logic.resolve_lsf(4100.0, None)
+        self.assertFalse(is_fallback)
+        self.assertAlmostEqual(lsf, 4100.0)
 
     def test_calculate_anchor_end_to_end_band_6_increasing(self):
         history = [
