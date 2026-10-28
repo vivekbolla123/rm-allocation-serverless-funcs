@@ -59,6 +59,13 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+# Market-list collections that are exempt from the `defaultMlFlag: 0` filter.
+# "market_list" is the main managed list; "market_list_default" is the adhoc
+# collection populated by the Default-ML job, whose rows intentionally carry
+# defaultMlFlag=1 and must still be processed. Other adhoc tables (eqt/thirty)
+# keep the filter so default-ML rows are excluded from them.
+DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES = {"market_list", "market_list_default"}
+
 def log_memory(label):
     import psutil, os
     process = psutil.Process(os.getpid())
@@ -891,11 +898,29 @@ def left_join_forecast(mkt_list, forecast_df, model_map, wadd_df=None):
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
 
-    # WADD sectors: substitute forecastPLF with the additive-model PLF.
-    # WADD has no fallback — apply_lb_forecast_switch only acts on ML sectors,
-    # so this value is always kept (forecastPLF_lb is preserved only for parity
-    # with the ML path and is unused for WADD).
-    mkt.loc[(mkt['forecast_model'] == 'WADD') & (mkt['forecastPLF_wadd'].notna()) & (mkt['forecastPLF_wadd'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_wadd']
+    # WADD sectors: forecastPLF comes ONLY from the additive model — there is
+    # no fallback to the LB forecast. The initial forecast_results join above
+    # populates forecastPLF with the LB value for every flight; for WADD
+    # sectors we must therefore REPLACE it with the WADD value, and BLANK it
+    # out when the WADD forecast is unavailable (empty table / no match).
+    # Otherwise the stale LB value would leak through and look like a fallback.
+    wadd_sector_mask = mkt['forecast_model'] == 'WADD'
+    wadd_available_mask = (
+        wadd_sector_mask
+        & mkt['forecastPLF_wadd'].notna()
+        & (mkt['forecastPLF_wadd'].astype(str).str.strip() != '')
+    )
+    # 1. Where WADD is available: use it for both forecastPLF and adjustedPLF
+    #    (downstream getParsedForecast reads adjustedPLF when
+    #    CanAdjustedForecast=1, so both must carry the WADD value).
+    mkt.loc[wadd_available_mask, 'forecastPLF'] = mkt['forecastPLF_wadd']
+    if 'adjustedPLF' in mkt.columns:
+        mkt.loc[wadd_available_mask, 'adjustedPLF'] = mkt['forecastPLF_wadd']
+    # 2. Where WADD sector but WADD is NOT available: clear the LB value in both
+    #    columns so no forecast is applied downstream (no fallback).
+    mkt.loc[wadd_sector_mask & ~wadd_available_mask, 'forecastPLF'] = np.nan
+    if 'adjustedPLF' in mkt.columns:
+        mkt.loc[wadd_sector_mask & ~wadd_available_mask, 'adjustedPLF'] = np.nan
 
     mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecastPLF_wadd'], inplace=True, errors='ignore')
     return mkt
@@ -1144,7 +1169,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
                 ]
             }
         }
-        if market_list_table != "market_list" and query_type != 'connections':
+        if market_list_table not in DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
         cursor = mongo_find_with_retry(market_list_table, market_list_filter)
@@ -1183,7 +1208,7 @@ def fetch_market_list_for_specific_dates(specific_dates, market_list_table, quer
         date_strs = [pd.Timestamp(d).strftime('%m/%d/%Y') for d in specific_dates]
         market_list_filter = {'PerStart': {'$in': date_strs}}
 
-        if market_list_table != "market_list" and query_type != 'connections':
+        if market_list_table not in DEFAULT_ML_FLAG_FILTER_EXEMPT_TABLES and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
         cursor = mongo_find_with_retry(market_list_table, market_list_filter)
@@ -1521,16 +1546,15 @@ def get_sector_forecast_model_map():
 def get_wadd_forecast(min_date, max_date):
     """Fetch the Additive (WADD) model forecast PLF per flight.
 
-    Source: Mongo ``qp_dw_rmalloc.add_model_fare_bucket_level_weighted``
-    (the fare-bucket-level weighted output of the additive pickup model).
+    Source: Mongo ``qp_dw_rmalloc.add_model_inventory_ng`` (the inventory
+    output of the additive pickup model).
 
-    ``New Final Total Bookings`` is a flight-level value (identical across
-    every fare bucket of a flight — it is ``Current_Bookings +
-    New predicted_pax_count_final``), so we collapse the fare-bucket rows to
+    ``Predicted_Flown_Revised`` is a flight-level value (identical across
+    every fare bucket of a flight), so we collapse the fare-bucket rows to
     one row per ``(Origin, Destination, FlightNumber, DepartureDate)`` and
     compute::
 
-        forecastPLF_wadd = New Final Total Bookings / Capacity * 100
+        forecastPLF_wadd = Predicted_Flown_Revised / capacity * 100
 
     Returns a DataFrame with columns
     ``[DepartureDate, FlightNumber, Origin, Destination, forecastPLF_wadd]``
@@ -1544,46 +1568,47 @@ def get_wadd_forecast(min_date, max_date):
 
     projection = {
         '_id': 0,
-        'Sector': 1,
-        'FlightNumber': 1,
-        'DepartureDate': 1,
-        'Capacity': 1,
-        'New Final Total Bookings': 1,
+        'sector': 1,
+        'flight': 1,
+        'date': 1,
+        'capacity': 1,
+        'Predicted_Flown_Revised': 1,
     }
     cursor = list(
-        mongo_db['add_model_fare_bucket_level_weighted'].find(
-            {'DepartureDate': {'$gte': start_str, '$lte': end_str}},
+        mongo_db['add_model_inventory_ng'].find(
+            {'date': {'$gte': start_str, '$lte': end_str}},
             projection,
         )
     )
 
     if not cursor:
         logger.warning(
-            f"WADD forecast: no documents in add_model_fare_bucket_level_weighted "
+            f"WADD forecast: no documents in add_model_inventory_ng "
             f"for {start_str} to {end_str}"
         )
         return pd.DataFrame(columns=cols)
 
     df = pd.DataFrame(cursor)
 
-    # DepartureDate is stored as a 'YYYY-MM-DD' string in the collection.
-    df['DepartureDate'] = pd.to_datetime(df['DepartureDate'], errors='coerce').dt.normalize()
-    df['Capacity'] = pd.to_numeric(df['Capacity'], errors='coerce')
-    df['New Final Total Bookings'] = pd.to_numeric(df['New Final Total Bookings'], errors='coerce')
+    # 'date' is stored as a 'YYYY-MM-DD' string in the collection.
+    df['DepartureDate'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+    df['capacity'] = pd.to_numeric(df['capacity'], errors='coerce')
+    df['Predicted_Flown_Revised'] = pd.to_numeric(df['Predicted_Flown_Revised'], errors='coerce')
 
-    # Sector -> Origin / Destination (first 3 / next 3 chars).
-    df['Origin'] = df['Sector'].astype(str).str[:3]
-    df['Destination'] = df['Sector'].astype(str).str[3:6]
+    # sector -> Origin / Destination (first 3 / next 3 chars); flight -> FlightNumber.
+    df['Origin'] = df['sector'].astype(str).str[:3]
+    df['Destination'] = df['sector'].astype(str).str[3:6]
+    df['FlightNumber'] = df['flight']
 
-    # New Final Total Bookings is flight-level (constant per flight); collapse
+    # Predicted_Flown_Revised is flight-level (constant per flight); collapse
     # the fare-bucket rows to one row per flight.
     df = df.drop_duplicates(
         subset=['Origin', 'Destination', 'FlightNumber', 'DepartureDate']
     )
 
     df['forecastPLF_wadd'] = np.where(
-        df['Capacity'] > 0,
-        (df['New Final Total Bookings'] / df['Capacity']) * 100.0,
+        df['capacity'] > 0,
+        (df['Predicted_Flown_Revised'] / df['capacity']) * 100.0,
         np.nan,
     ).round(1)
 

@@ -810,11 +810,10 @@ class RMDatabaseHelper:
     def _apply_wadd_forecast(self, mktList):
         """Override forecastPLF for WADD sectors with the additive-model forecast.
 
-        Source collection: ``add_model_fare_bucket_level_weighted`` (fare-bucket
-        level; ``New Final Total Bookings`` is a flight-level value identical
-        across every fare bucket of a flight). For each
-        ``(Origin, Destin, FlightNumber, DepartureDate)`` we take one value and
-        compute ``forecastPLF = New Final Total Bookings / Capacity * 100``.
+        Source collection: ``add_model_inventory_ng``; ``Predicted_Flown_Revised``
+        is a flight-level value identical across every fare bucket of a flight.
+        For each ``(Origin, Destin, FlightNumber, DepartureDate)`` we take one
+        value and compute ``forecastPLF = Predicted_Flown_Revised / capacity * 100``.
 
         Mirrors the production substitution in
         ``rm-allocation-fetch-inputs.left_join_forecast`` so local test runs
@@ -831,23 +830,47 @@ class RMDatabaseHelper:
         if not wadd_mask.any():
             return
 
-        # Ensure the target column exists so the per-row override below can write to it.
+        # Ensure the target columns exist so the per-row override below can write to them.
         if 'forecastPLF' not in mktList.columns:
             mktList['forecastPLF'] = CONST_NA
+        has_adjusted = 'adjustedPLF' in mktList.columns
+
+        # WADD has NO fallback to the LB forecast. The aggregation's
+        # forecast_results join populates forecastPLF (and adjustedPLF) with the
+        # LB value for every flight, so BLANK those columns for all WADD rows
+        # first; they are repopulated below only where a WADD value exists.
+        # This guarantees "no WADD data" => "no forecast", even when the WADD
+        # collection is empty (the early returns below then leave them blank).
+        mktList.loc[wadd_mask, 'forecastPLF'] = CONST_NA
+        if has_adjusted:
+            mktList.loc[wadd_mask, 'adjustedPLF'] = CONST_NA
 
         # Local test fixtures load the WADD forecast into ``forecast_results_WADD``;
-        # production stores it in ``add_model_fare_bucket_level_weighted``. Try the
-        # local collection first, then fall back to the production one.
+        # production stores it in ``add_model_inventory_ng``. Try the local
+        # collection first, then fall back to the production one.
         docs = list(self.db['forecast_results_WADD'].find({}, {'_id': 0}))
         if not docs:
-            docs = list(self.db['add_model_fare_bucket_level_weighted'].find({}, {'_id': 0}))
+            docs = list(self.db['add_model_inventory_ng'].find({}, {'_id': 0}))
         if not docs:
             self.logger.warning(
                 "WADD forecast: no documents in forecast_results_WADD or "
-                "add_model_fare_bucket_level_weighted")
+                "add_model_inventory_ng; WADD rows left without a forecast")
             return
 
         wadd_df = pd.DataFrame(docs)
+
+        # Column names differ by source:
+        #   * local test file : Sector, DepartureDate, FlightNumber, ForecastPLF
+        #   * add_model_inventory_ng : sector, date, flight, capacity,
+        #                              Predicted_Flown_Revised
+        # Normalise to Sector / DepartureDate / FlightNumber first.
+        if 'Sector' not in wadd_df.columns and 'sector' in wadd_df.columns:
+            wadd_df['Sector'] = wadd_df['sector']
+        if 'DepartureDate' not in wadd_df.columns and 'date' in wadd_df.columns:
+            wadd_df['DepartureDate'] = wadd_df['date']
+        if 'FlightNumber' not in wadd_df.columns and 'flight' in wadd_df.columns:
+            wadd_df['FlightNumber'] = wadd_df['flight']
+
         wadd_df['Origin'] = wadd_df['Sector'].astype(str).str[:3]
         wadd_df['Destin'] = wadd_df['Sector'].astype(str).str[3:6]
         wadd_df['DepartureDate'] = wadd_df['DepartureDate'].astype(str).str.strip()
@@ -855,22 +878,22 @@ class RMDatabaseHelper:
 
         # Two accepted shapes:
         #   1. Local test file: a direct ForecastPLF column.
-        #   2. Production-shaped: fare-bucket rows carrying 'Capacity' and
-        #      'New Final Total Bookings' (PLF = bookings / capacity * 100).
+        #   2. add_model_inventory_ng: rows carrying 'capacity' and
+        #      'Predicted_Flown_Revised' (PLF = bookings / capacity * 100).
         if 'ForecastPLF' in wadd_df.columns:
             wadd_df['forecastPLF_wadd'] = pd.to_numeric(
                 wadd_df['ForecastPLF'], errors='coerce').round(1)
-        elif {'Capacity', 'New Final Total Bookings'}.issubset(wadd_df.columns):
-            wadd_df['Capacity'] = pd.to_numeric(wadd_df['Capacity'], errors='coerce')
-            wadd_df['New Final Total Bookings'] = pd.to_numeric(
-                wadd_df['New Final Total Bookings'], errors='coerce')
+        elif {'capacity', 'Predicted_Flown_Revised'}.issubset(wadd_df.columns):
+            wadd_df['capacity'] = pd.to_numeric(wadd_df['capacity'], errors='coerce')
+            wadd_df['Predicted_Flown_Revised'] = pd.to_numeric(
+                wadd_df['Predicted_Flown_Revised'], errors='coerce')
             wadd_df['forecastPLF_wadd'] = (
-                (wadd_df['New Final Total Bookings'] / wadd_df['Capacity']) * 100.0
-            ).where(wadd_df['Capacity'] > 0).round(1)
+                (wadd_df['Predicted_Flown_Revised'] / wadd_df['capacity']) * 100.0
+            ).where(wadd_df['capacity'] > 0).round(1)
         else:
             self.logger.warning(
                 "WADD forecast: collection missing both 'ForecastPLF' and "
-                "('Capacity','New Final Total Bookings') columns")
+                "('capacity','Predicted_Flown_Revised') columns")
             return
 
         wadd_df = wadd_df.drop_duplicates(
@@ -898,6 +921,8 @@ class RMDatabaseHelper:
             val = wadd_lookup.get((origin, destin, flight, dep_date))
             if val is not None and not pd.isna(val):
                 mktList.at[idx, 'forecastPLF'] = val
+                if has_adjusted:
+                    mktList.at[idx, 'adjustedPLF'] = val
                 applied += 1
 
         self.logger.info(f"WADD forecast applied to {applied} WADD rows")
