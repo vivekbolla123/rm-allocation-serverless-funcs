@@ -324,6 +324,7 @@ OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
 BUY_UP_FACTOR_KEY = 'BUY_UP_FACTOR'
 DEFAULT_FIRST_RBD_SEATS_KEY = 'DEFAULT_FIRST_RBD_SEATS'
 FIRST_RBD_ALLOC_KEY = 'FirstRBDAlloc'
+NEXTGEN_OTHERRBD_KEY = 'NEXTGEN_OTHERRBD'
 DEFAULT_STANDARD_DEVIATION_FACTOR_KEY = 'DEFAULT_STANDARD_DEVIATION_FACTOR'
 DEFAULT_PROMO_FARE_FACTOR_KEY = 'DEFAULT_PROMO_FARE_FACTOR'
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY = 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU'
@@ -438,6 +439,9 @@ CONST_SUMMARY_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "ge
 
 # NextGen AU Optimization & Competition Response Parameters
 DEFAULT_FIRST_RBD_SEATS = 20
+# Maximum consecutive step-up (seats) allowed between successive AU_Revised
+# allocations in the NextGen optimisation ladder / filed B2C RBD mapping.
+NEXTGEN_OTHERRBD = 20
 DEFAULT_STANDARD_DEVIATION_FACTOR = 0.25
 DEFAULT_PROMO_FARE_FACTOR = 0.80
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
@@ -479,7 +483,8 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
     'buy_up_factor', 'RunId', 'Id',
     'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
     'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
-    'analystName', 'status', 'allocationStatus'
+    'analystName', 'status', 'allocationStatus',
+    'ConversionRate', 'Currency'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
@@ -494,7 +499,8 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
     'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
+    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId',
+    'ConversionRate', 'Currency'
 ]
 
 

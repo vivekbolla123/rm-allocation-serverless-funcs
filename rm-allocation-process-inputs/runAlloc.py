@@ -1597,26 +1597,9 @@ class DynAlloc:
 								'FareBucket_Upper': to_float(b_upper, None) if pd.notna(b_upper) else None,
 							})
 					else:
-						# Fallback when weighted forecast is unavailable: 19 filed RBDs
-						for idx, rbd_row in B2CRBDs_ladder.iterrows():
-							raw_fare = to_float(rbd_row.get('TOTAL', rbd_row.get('Total', rbd_row.get('fare', 0.0))), 0.0)
-							# Fares in Mongo fares collection are all-in; convert to airline component for NextGen optimization
-							if hasattr(self, 'tax_helper') and self.tax_helper:
-								fare_val = self.tax_helper.allin_to_airline_component(
-									raw_fare, self.currParams.origin, self.currParams.destin,
-									route=getattr(self.currParams, 'route', None)
-								)
-							else:
-								fare_val = raw_fare
-							rbd_code = str(rbd_row.get('RBD', f'RBD_{idx}'))
-							var_float = to_float(variance_full, 10.0)
-							mu_val = max(0.0, var_float / max(1, len(B2CRBDs_ladder))) if var_float > 0 else 0.0
-							ladder_data.append({
-								'FareBucket': rbd_code,
-								'fare': fare_val,
-								'mu': mu_val,
-								'sigma': 0.25 * mu_val
-							})
+						# Fallback when weighted forecast is unavailable: construct 18 standard GP fare bucket intervals
+						# from the filed B2C ladder (resulting in 18 intervals + 1 promo = 19 records, with actual interval values).
+						ladder_data = self._generate_fallback_18_gp_fare_buckets(B2CRBDs_ladder, variance_full)
 					ladder_df = pd.DataFrame(ladder_data).sort_values('fare', ascending=False).reset_index(drop=True)
 
 					# STD (departure time) is always sourced from the weighted file if available,
@@ -1744,13 +1727,41 @@ class DynAlloc:
 						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
 							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
 							if daily_lf is not None:
-								if 0.0 < daily_lf <= 1.0:
+								# LF_Forecast_Revised is stored as a 0-1 fraction
+								# (pred_flown_rev / cap). Scale to a 0-100 percentage.
+								# PLF can legitimately exceed 100% (overbooked / high
+								# demand, capped at ~110%), so a fraction may be > 1.0
+								# (e.g. 1.01 == 101%). Use a threshold above that cap
+								# to decide scale: values <= 2.0 are fractions, higher
+								# values are already percentages.
+								if 0.0 < daily_lf <= 2.0:
 									daily_lf = daily_lf * 100.0
 								ng_summary['NG_LF_Forecast'] = round(daily_lf, 4)
 						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
 							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
 							if daily_af is not None:
 								ng_summary['NG_AF_Forecast'] = daily_af
+
+					# Currency conversion for weighted-file-derived (INR) fares.
+					# INR -> sector home currency (multiply); (1.0, 'INR') when no
+					# conversion. ONLY the weighted-file fares are converted here;
+					# market / OAL fares stay in home currency and are left untouched.
+					ng_rate, ng_curr = self.resolve_home_conversion(self.currency)
+
+					def _conv_inr(value):
+						"""Scale an INR fare/revenue value into home currency by ng_rate.
+						Leaves CONST_NA / non-numeric values unchanged."""
+						if value is None or str(value) == CONST_NA:
+							return value
+						try:
+							if pd.isna(value):
+								return value
+						except (TypeError, ValueError):
+							pass
+						try:
+							return float(value) * ng_rate
+						except (TypeError, ValueError):
+							return value
 
 					# Populate OutputSummaryNextGen (All fares are presented as ALL-IN fares)
 					ng_row = OutputSummaryNextGen()
@@ -1775,18 +1786,21 @@ class DynAlloc:
 					ng_row.NG_Historical_current_booked = to_float(currBookedLoad, 0.0)
 					ng_row.NG_LF_Forecast = ng_summary.get('NG_LF_Forecast')
 					ng_row.NG_AF_Forecast = safe_round_fare(ng_summary.get('NG_AF_Forecast'))
-					ng_row.NG_Opening_fare = safe_round_fare(ng_summary.get('NG_Opening_fare'))
+					ng_row.NG_Opening_fare = safe_round_fare(_conv_inr(ng_summary.get('NG_Opening_fare')))
 					strat_val = ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare'))
 					anch_val = ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare'))
-					ng_row.NG_Strategy_fare = safe_round_fare(strat_val)
-					ng_row.NG_Anchor_fare = safe_round_fare(anch_val)
-					ng_row.Current_Revenue = to_float(curr_rev, 0.0)
-					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
-					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
+					ng_row.NG_Strategy_fare = safe_round_fare(_conv_inr(strat_val))
+					ng_row.NG_Anchor_fare = safe_round_fare(_conv_inr(anch_val))
+					ng_row.Current_Revenue = _conv_inr(to_float(curr_rev, 0.0))
+					ng_row.Total_Expected_Revenue = _conv_inr(ng_summary.get('Total_Expected_Revenue'))
+					ng_row.Predicted_Revenue = _conv_inr(ng_summary.get('Predicted_Revenue'))
 					ng_row.Predicted_Pickup_Revised = ng_summary.get('Predicted_Pickup_Revised')
 					ng_row.analystName = getattr(self.currParams, 'analyst_name', CONST_NA)
 					ng_row.status = getattr(self.currParams, 'status', getattr(self, 'status', CONST_NA))
 					ng_row.allocationStatus = getattr(self.currParams, 'allocationStatus', getattr(self, 'allocationStatus', CONST_NA))
+					# New columns: the rate applied and the home currency used.
+					ng_row.ConversionRate = ng_rate
+					ng_row.Currency = ng_curr
 
 					self.nextgenSummaryResults.append(ng_row)
 					try:
@@ -1972,6 +1986,27 @@ class DynAlloc:
 								'au': to_float(b_row.get('AU_Revised', 0.0), 0.0)
 							})
 
+						# Convert weighted-file-derived (INR) money columns into the
+						# sector home currency (INR -> home, multiply by ng_rate).
+						# Market / OAL columns (oal_b2c_min*) are already in home
+						# currency and are deliberately EXCLUDED to avoid double FX.
+						if ng_rate != 1.0:
+							inr_money_cols = [
+								'fare', 'fare_All_in',
+								'anchor_fare', 'anchor_fare_All_in',
+								'strategy_fare', 'strategy_fare_All_in',
+								'opening fare', 'opening fare_All_in',
+								'Current_Revenue', 'Expected_Revenue',
+								'Total_Expected_Revenue', 'Predicted_Revenue',
+								'RASK_Forecast', 'RPKM'
+							]
+							for _c in inr_money_cols:
+								if _c in ng_opt_df.columns:
+									ng_opt_df[_c] = pd.to_numeric(ng_opt_df[_c], errors='coerce') * ng_rate
+						# New columns: the rate applied and the home currency used.
+						ng_opt_df['ConversionRate'] = ng_rate
+						ng_opt_df['Currency'] = ng_curr
+
 						# Strictly include only the configured columns without extra columns for saving
 						inv_ordered_cols = [c for c in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if c in ng_opt_df.columns]
 						ng_opt_df_to_save = ng_opt_df[inv_ordered_cols]
@@ -2109,6 +2144,93 @@ class DynAlloc:
 		state.Af_Nb_Allin = Af_Nb_Allin
 		state.profileExtract_df_fullalloc = profileExtract_df_fullalloc
 		state.profileFares_list_sorted_fullalloc = profileFares_list_sorted_fullalloc
+
+	def _generate_fallback_18_gp_fare_buckets(self, b2c_ladder_df, variance_full):
+		"""
+		Construct fallback 18 Geometric Progression (GP) fare bucket intervals
+		from the filed B2C ladder when the weighted forecast is missing/empty.
+
+		Guarantees exactly 18 fare bucket intervals (which, together with the 1 promo
+		class, yield the regular 19 records in inventory_optimization), with actual
+		bucket interval values ('lower-upper', 'lower+') rather than raw RBD codes.
+		"""
+		if b2c_ladder_df is None or b2c_ladder_df.empty:
+			return []
+
+		fare_col = next((c for c in ['fare', 'TOTAL', 'Fare', 'total', 'Amount'] if c in b2c_ladder_df.columns), None)
+		if not fare_col:
+			return []
+
+		fare_values = sorted([float(x) for x in b2c_ladder_df[fare_col].dropna().unique() if float(x) > 1.0])
+		if not fare_values:
+			return []
+
+		# Determine 18 boundary points using Geometric Progression (GP)
+		# To get 18 buckets (17 intervals + 1 open-ended), we need 18 boundary points: b_0, ..., b_17
+		g1 = float(fare_values[0])
+		g_top = float(fare_values[-1])
+		if g1 <= 1.0:
+			g1 = 100.0
+
+		target_points = 18
+		matched_fares = []
+		if len(fare_values) >= target_points:
+			common_ratio = (g_top / g1) ** (1.0 / float(target_points - 1)) if g_top > g1 else 1.0
+			gp_values = [g1 * (common_ratio ** i) for i in range(target_points)]
+
+			fare_arr = np.array(fare_values, dtype=float)
+			for gp_val in gp_values:
+				diffs = np.abs(fare_arr - gp_val)
+				closest_idx = diffs.argmin()
+				matched_fares.append(float(fare_arr[closest_idx]))
+
+			# Remove duplicates to ensure strictly increasing
+			matched_fares = sorted(list(set(matched_fares)))
+			if len(matched_fares) < target_points:
+				# Use evenly spaced indices across sorted unique filed fares
+				indices = np.round(np.linspace(0, len(fare_values) - 1, target_points)).astype(int)
+				matched_fares = sorted(list(set([float(fare_values[i]) for i in indices])))
+
+		if len(fare_values) < target_points or len(matched_fares) < target_points:
+			if g_top <= g1:
+				g_top = g1 * 2.0
+			ratio = (g_top / g1) ** (1.0 / float(target_points - 1))
+			matched_fares = [round(g1 * (ratio ** i), 0) for i in range(target_points)]
+			for i in range(1, len(matched_fares)):
+				if matched_fares[i] <= matched_fares[i - 1]:
+					matched_fares[i] = matched_fares[i - 1] + 1.0
+
+		var_float = to_float(variance_full, 0.0)
+		pax_val = (var_float / 18.0) if var_float > 0 else 0.0
+		std_val = 0.25 * pax_val
+
+		ladder_data = []
+		n_matched = len(matched_fares)
+		# Construct 17 interval buckets: [lower, upper)
+		for i in range(n_matched - 1):
+			lower = int(round(matched_fares[i]))
+			upper = int(round(matched_fares[i + 1]))
+			ladder_data.append({
+				'FareBucket': f"{lower}-{upper}",
+				'fare': float(lower),
+				'mu': pax_val,
+				'sigma': std_val,
+				'FareBucket_Lower': float(lower),
+				'FareBucket_Upper': float(upper),
+			})
+
+		# 18th bucket: open-ended top bucket [top, +inf)
+		top_lower = int(round(matched_fares[-1]))
+		ladder_data.append({
+			'FareBucket': f"{top_lower}+",
+			'fare': float(top_lower),
+			'mu': pax_val,
+			'sigma': std_val,
+			'FareBucket_Lower': float(top_lower),
+			'FareBucket_Upper': None,
+		})
+
+		return ladder_data
 
 	def _phaseM_pushNavitaire(self, state):
 		"""Phase M — push the AU grid row to Navitaire via the configured method
@@ -2690,12 +2812,18 @@ class DynAlloc:
 				AUlist.append(f'Class Allotted AU Class {i+1}')
 				AUlist.append(f'AP Restriction AU Class {i+1}')
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
+			# Drop bookkeeping columns plus any extra NextGen audit attributes that
+			# get attached to rows during NextGen optimization (nav_audit_id, etc.).
+			# These are not part of the AU grid schema, so they must be removed before
+			# AUFrame.columns is re-labelled with AUlist, otherwise the column count
+			# won't match AUlist and pandas raises a "Length mismatch" ValueError.
 			AUFrame = AUFrame.drop(
 				columns=[
 					"b2brunid", "b2crunid", "au_column_length",
-					"nav_audit_id", "nextgen_rbd_details", "flight_number", "sector", "departure_date"
+					"nav_audit_id", "nextgen_rbd_details",
+					"flight_number", "sector", "departure_date",
 				],
-				errors="ignore"
+				errors="ignore",
 			)
 			AUFrame.columns = AUlist
 			# Round off final AUs only in AU grid
@@ -2960,6 +3088,42 @@ class DynAlloc:
 		# 		self.outputSummaryRow_b2c.conversionRate=conversion_rate
 				
 		return converted_value, conversion_rate
+
+	def resolve_home_conversion(self, currency):
+		"""Resolve the INR -> home-currency multiplier for a sector.
+
+		DIRECTION ASSUMPTION (documented): every fare derived from the weighted
+		file (``add_model_fare_bucket_level_weighted``) is in INR. To express it
+		in the sector's HOME currency we MULTIPLY by the ``(From='INR', To=<home>)``
+		row of ``currency_conversion`` — the same convention already used by
+		``convert_currency('INR', self.currency, value)`` on the legacy path.
+
+		Returns ``(rate: float, currency_code: str)``. Falls back to ``(1.0, 'INR')``
+		(values left in INR) whenever the currency is INR / missing / unknown or the
+		rate lookup fails, so a missing rate never crashes the pipeline.
+		"""
+		code = str(currency).strip() if currency is not None else ''
+		if code == '' or code.upper() in ('INR', 'NAN', 'NONE'):
+			return 1.0, 'INR'
+		code = code.upper()
+		try:
+			# INR -> home : multiply by ConversionRate of the (INR, home) row.
+			_, rate = self.convert_currency('INR', code, 1.0)
+			rate = float(rate)
+			if rate > 0:
+				return rate, code
+		except Exception as e:
+			self.logger.warning(f"Direct INR->{code} conversion rate missing ({e}); trying reverse row")
+		try:
+			# Fallback: use the reverse (home -> INR) row and invert it.
+			_, rev_rate = self.convert_currency(code, 'INR', 1.0)
+			rev_rate = float(rev_rate)
+			if rev_rate > 0:
+				return 1.0 / rev_rate, code
+		except Exception as e:
+			self.logger.warning(f"Reverse {code}->INR conversion rate missing ({e})")
+		self.logger.warning(f"No currency_conversion rate found for INR->{code}; leaving fares in INR (rate=1.0)")
+		return 1.0, 'INR'
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
