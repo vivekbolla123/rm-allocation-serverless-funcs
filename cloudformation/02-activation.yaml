@@ -1,0 +1,266 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Phase 2 - Activation Stack
+  Activates the new RM Lambda functions by wiring all event triggers:
+  1. SQS EventSourceMappings with batch size, batching window, and concurrency scaling.
+  2. EventBridge Rules target activation (attaching -new-lambda targets and granting invoke permissions).
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [uat]
+    Default: uat
+    Description: Deployment target environment.
+
+  ActivateSqs:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    Description: Whether to create SQS event source mappings.
+
+  ActivateEventBridgeRules:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    Description: Whether to add new targets to EventBridge rules.
+
+  # SQS Queue ARNs (Configured per environment with defaults)
+  QueueArnFetchInputs:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:test-rm-allocation-queues-rm-allocation-fetch-inputs'
+    Description: SQS ARN for rm-allocation-fetch-inputs
+
+  QueueArnProcessInputs:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:test-rm-allocation-queues-rm-allocation-market-list'
+    Description: SQS ARN for rm-allocation-process-inputs
+
+  QueueArnScheduledJobs:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:test'
+    Description: SQS ARN for rm-allocation-scheduled-jobs
+
+  QueueArnUpdateRbd:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:test-rm-allocation-queues-rm-allocation-rbds'
+    Description: SQS ARN for rm-allocation-update-rbd
+
+  QueueArnUpdateRbdFtp:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:test-rm-allocation-queues-rm-allocation-rbds-ftp'
+    Description: SQS ARN for rm-allocation-update-rbd-ftp
+
+  QueueArnPricingTriggers:
+    Type: String
+    Default: 'arn:aws:sqs:ap-south-1:891377165721:rm-allocation-queues_rm-pricing-triggers'
+    Description: SQS ARN for rm-pricing-triggers (uat)
+
+Conditions:
+  IsUat: !Equals [!Ref Environment, 'uat']
+  EnableUatSqs: !And
+    - !Equals [!Ref Environment, 'uat']
+    - !Equals [!Ref ActivateSqs, 'true']
+  EnableEbRules: !Equals [!Ref ActivateEventBridgeRules, 'true']
+
+Resources:
+  # =========================================================================
+  # SQS Event Source Mappings - UAT
+  # =========================================================================
+  UatFetchInputsSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-allocation-fetch-inputs"
+      EventSourceArn: !Ref QueueArnFetchInputs
+      BatchSize: 1
+      Enabled: true
+      ScalingConfig:
+        MaximumConcurrency: 10
+
+  UatProcessInputsSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-allocation-process-inputs"
+      EventSourceArn: !Ref QueueArnProcessInputs
+      BatchSize: 1
+      Enabled: true
+      ScalingConfig:
+        MaximumConcurrency: 600
+
+  UatScheduledJobsSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-allocation-scheduled-jobs"
+      EventSourceArn: !Ref QueueArnScheduledJobs
+      BatchSize: 10
+      Enabled: false
+      ScalingConfig:
+        MaximumConcurrency: 500
+
+  UatUpdateRbdSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-allocation-update-rbd"
+      EventSourceArn: !Ref QueueArnUpdateRbd
+      BatchSize: 5
+      Enabled: true
+      ScalingConfig:
+        MaximumConcurrency: 400
+
+  UatUpdateRbdFtpSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-allocation-update-rbd-ftp"
+      EventSourceArn: !Ref QueueArnUpdateRbdFtp
+      BatchSize: 10
+      Enabled: true
+
+  UatPricingTriggersSqsMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: EnableUatSqs
+    Properties:
+      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:uat-rm-lambda-rm-pricing-triggers"
+      EventSourceArn: !Ref QueueArnPricingTriggers
+      BatchSize: 1
+      Enabled: true
+
+  # =========================================================================
+  # Custom Resource for EventBridge Rule Target Activation & Permissions
+  # =========================================================================
+  RuleActivationCustomRole:
+    Type: AWS::IAM::Role
+    Condition: EnableEbRules
+    Properties:
+      RoleName: !Sub "${Environment}-rm-eb-activation-handler-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ManageEventBridgeTargets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - events:PutTargets
+                  - events:RemoveTargets
+                  - events:ListTargetsByRule
+                  - events:DescribeRule
+                Resource: !Sub "arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/*"
+              - Effect: Allow
+                Action:
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:GetPolicy
+                  - lambda:GetFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+
+  RuleActivationFunction:
+    Type: AWS::Lambda::Function
+    Condition: EnableEbRules
+    DependsOn: RuleActivationCustomRole
+    Properties:
+      FunctionName: !Sub "${Environment}-rm-eb-rule-activator"
+      Handler: index.lambda_handler
+      Role: !GetAtt RuleActivationCustomRole.Arn
+      Runtime: python3.11
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib.request
+          from botocore.exceptions import ClientError
+
+          events = boto3.client('events')
+          lam = boto3.client('lambda')
+
+          def send_cfn_response(event, context, status, reason, physical_id=None, data=None):
+              response_body = json.dumps({
+                  'Status': status,
+                  'Reason': reason or 'See CloudWatch Log Stream: ' + context.log_stream_name,
+                  'PhysicalResourceId': physical_id or context.log_stream_name,
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+                  'Data': data or {}
+              }).encode('utf-8')
+              req = urllib.request.Request(
+                  event['ResponseURL'],
+                  data=response_body,
+                  headers={'content-type': '', 'content-length': str(len(response_body))},
+                  method='PUT'
+              )
+              urllib.request.urlopen(req)
+
+          def lambda_handler(event, context):
+              print(f"RequestType: {event.get('RequestType')}")
+              req_type = event.get('RequestType')
+              env = event['ResourceProperties']['Environment']
+              
+              if req_type in ('Create', 'Update'):
+                  try:
+                      paginator = events.get_paginator('list_rules')
+                      updated_count = 0
+                      for page in paginator.paginate():
+                          for rule in page.get('Rules', []):
+                              rule_name = rule['Name']
+                              try:
+                                  targets = events.list_targets_by_rule(Rule=rule_name).get('Targets', [])
+                              except Exception:
+                                  continue
+                              for t in targets:
+                                  old_arn = t.get('Arn', '')
+                                  if 'uat-rm-allocation-serverless-funcs' in old_arn or 'uat-rm-additive' in old_arn:
+                                      old_fn = old_arn.split(':function:')[-1]
+                                      svc = old_fn.replace('uat-rm-allocation-serverless-funcs-', '').replace('uat-', '')
+                                      new_fn = f"{env}-rm-lambda-{svc}"
+                                      new_arn = f"arn:aws:lambda:{boto3.Session().region_name}:{old_arn.split(':')[4]}:function:{new_fn}"
+                                      
+                                      new_target_id = f"{t.get('Id', 'target')}-new-lambda"
+                                      new_target = dict(t)
+                                      new_target['Id'] = new_target_id
+                                      new_target['Arn'] = new_arn
+                                      events.put_targets(Rule=rule_name, Targets=[new_target])
+                                      
+                                      try:
+                                          lam.add_permission(
+                                              FunctionName=new_fn,
+                                              StatementId=f"{rule_name}-new-lambda",
+                                              Action="lambda:InvokeFunction",
+                                              Principal="events.amazonaws.com",
+                                              SourceArn=rule['Arn']
+                                          )
+                                      except ClientError as ce:
+                                          if ce.response['Error']['Code'] != 'ResourceConflictException':
+                                              print(f"Permission warning: {ce}")
+                                      updated_count += 1
+                      send_cfn_response(event, context, 'SUCCESS', f'Activated {updated_count} rule targets', physical_id=f"{env}-eb-activator")
+                  except Exception as ex:
+                      print(f"Error activating rules: {ex}")
+                      send_cfn_response(event, context, 'FAILED', str(ex))
+              elif req_type == 'Delete':
+                  send_cfn_response(event, context, 'SUCCESS', 'Cleaned up activation activator', physical_id=event.get('PhysicalResourceId'))
+
+  TriggerRuleActivation:
+    Type: Custom::EventBridgeRuleActivator
+    Condition: EnableEbRules
+    DependsOn: RuleActivationFunction
+    Properties:
+      ServiceToken: !GetAtt RuleActivationFunction.Arn
+      Environment: !Ref Environment
+
+Outputs:
+  ActivatedEnvironment:
+    Description: Environment activated
+    Value: !Ref Environment
