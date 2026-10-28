@@ -39,6 +39,7 @@ class ConstantsUtils:
         self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
         self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
         self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
+        self.LAST_SOLD_FARE_THRESHOLD_NDO45 = LAST_SOLD_FARE_THRESHOLD_NDO45
         self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
@@ -167,6 +168,7 @@ class ConstantsUtils:
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
         self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(AUTO_BACKSTOP_FORECAST_THRESHOLD)
+        self.NAV_CACHE_CONFIG = NAV_CACHE_CONFIG
 
         # Inventory Optimization (EMSR-b) Constants
         self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
@@ -298,6 +300,8 @@ class ConstantsUtils:
                 self.CUG_SEATS_PERCENT = float(parameter_value)
             elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
+            elif parameter_key == LAST_SOLD_FARE_THRESHOLD_NDO45_KEY:
+                self.LAST_SOLD_FARE_THRESHOLD_NDO45 = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:
                 self.LAST_N_AVG_FARE = int(parameter_value)
             elif parameter_key == MFMIN0_KEY:
@@ -619,6 +623,8 @@ class ConstantsUtils:
                 self.TIME_BAND_HOURS = int(parameter_value)
             elif parameter_key == ML_FLAG_COLUMNS_KEY:
                 self.ML_FLAG_COLUMNS = int(parameter_value)
+            elif parameter_key == NAV_CACHE_CONFIG_KEY:
+                self.NAV_CACHE_CONFIG = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

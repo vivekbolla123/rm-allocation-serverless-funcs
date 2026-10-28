@@ -1,0 +1,303 @@
+﻿version: '1.0'
+region: ap-south-1
+services:
+  rm-additive-process:
+    memory: 4096
+    timeout: 900
+    ephemeral_storage: 2048
+    dd_service: rm-additive-process
+    description: Additive process handler for RM additive model
+  rm-additive-prefetch:
+    memory: 2048
+    timeout: 900
+    ephemeral_storage: 2048
+    dd_service: rm-additive-process
+    description: Additive prefetch handler for RM additive model
+  rm-allocation-fetch-inputs:
+    memory: 8192
+    timeout: 900
+    ephemeral_storage: 1600
+    dd_service: rm-fetch-inputs
+    description: Fetch inputs service for RM dynamic allocation
+  rm-allocation-prefetch-inputs:
+    memory: 2048
+    timeout: 900
+    ephemeral_storage: 4096
+    dd_service: rm-prefetch-inputs
+    description: Prefetch inputs service for RM dynamic allocation
+  rm-allocation-process-inputs:
+    memory: 8192
+    timeout: 900
+    ephemeral_storage: 1600
+    dd_service: rm-process-inputs
+    description: Process inputs service for RM dynamic allocation
+  rm-allocation-scheduled-jobs:
+    memory: 4096
+    timeout: 900
+    ephemeral_storage: 4096
+    dd_service: rm-scheduled-jobs
+    description: Scheduled jobs orchestrator for RM dynamic allocation
+  rm-allocation-update-rbd:
+    memory: 2048
+    timeout: 900
+    ephemeral_storage: 4096
+    dd_service: rm-update-rbd
+    description: RBD update processor for RM dynamic allocation
+  rm-allocation-update-rbd-ftp:
+    memory: 2048
+    timeout: 900
+    ephemeral_storage: 4096
+    dd_service: rm-update-rbd-ftp
+    description: RBD FTP update processor for RM dynamic allocation
+  rm-pricing-triggers:
+    memory: 4096
+    timeout: 900
+    ephemeral_storage: 4096
+    dd_service: rm-pricing-tiggers
+    description: Sector monitor and pricing triggers handler
+environments:
+  uat:
+    account_id: '891377165721'
+    vpc:
+      vpc_id: vpc-01452dce7b5b446e1
+      subnets:
+      - subnet-053e2b8d03017c388
+      - subnet-0a05a901a38cd5672
+      security_groups:
+      - sg-087f8184f725ec3fe
+    secrets:
+      dd_api_key_ssm: /copilot/qp/uat/secrets/DD_API_KEY
+    execution_role_arn: arn:aws:iam::891377165721:role/lambda-execution-role
+    services:
+      rm-additive-process:
+        status: no_triggers
+      rm-additive-prefetch:
+        status: no_triggers
+      rm-allocation-fetch-inputs:
+        sqs:
+          queue_name: test-rm-allocation-queues-rm-allocation-fetch-inputs
+          batch_size: 1
+          enabled: true
+          max_concurrency: 10
+        rules:
+        - name: uat-rm-day-schedule-int-rule-1
+          schedule: cron(5 20,23,2,5,6,8,10,12,14,17 ? * * *)
+          enabled: false
+          input:
+            body:
+              start_interval: 0
+              end_interval: 45
+              run_type: Scheduled
+              market_list_table_name: market_list_international
+              region_method: International
+        - name: uat-rm-day-schedule-int-rule-2
+          schedule: cron(50 15 ? * 3,6 *)
+          enabled: false
+          input:
+            body:
+              start_interval: 46
+              end_interval: 90
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list_international
+              region_method: International
+        - name: uat-rm-day-schedule-int-rule-3
+          schedule: cron(20 6,10,14 ? * * *)
+          enabled: false
+          input:
+            body:
+              start_interval: 91
+              end_interval: 120
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list_international
+              region_method: International
+        - name: uat-rm-day-schedule-int-rule-4
+          schedule: cron(0 2,8,13 * * ? *)
+          enabled: false
+          input:
+            body:
+              start_interval: 121
+              end_interval: 365
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list_international
+              region_method: International
+        - name: uat-rm-day-schedule-rule-1
+          schedule: cron(45 0-17/1,22,23 * * ? *)
+          enabled: false
+          input:
+            body:
+              start_interval: 0
+              end_interval: 7
+              run_type: Scheduled
+        - name: uat-rm-day-schedule-rule-2
+          schedule: cron(35 21,23,1,3,5,7,9,11,13,15,17,19 * * ? *)
+          enabled: false
+          input:
+            body:
+              start_interval: 8
+              end_interval: 14
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list
+              region_method: Domestic
+        - name: uat-rm-day-schedule-rule-3
+          schedule: cron(30 21,1,5,9,17 * * ? *)
+          enabled: false
+          input:
+            body:
+              start_interval: 15
+              end_interval: 21
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list
+              region_method: Domestic
+        - name: uat-rm-day-schedule-rule-4
+          schedule: cron(30 23,5,9 * * ? *)
+          enabled: false
+          input:
+            body:
+              start_interval: 22
+              end_interval: 90
+              run_type: Scheduled
+              update_navitaire_method: api
+              market_list_table_name: market_list
+              region_method: Domestic
+        - name: uat-rm-day-schedule-rule-5
+          schedule: cron(0 21 * * ? *)
+          enabled: false
+        - name: uat-rm-day-schedule-rule-6
+          schedule: cron(0 21 ? * MON,FRI *)
+          enabled: false
+        - name: uat-rm-day-schedule-rule-7
+          schedule: cron(0 21 ? * TUE,SAT *)
+          enabled: false
+        - name: uat-rm-day-schedule-rule-8
+          schedule: cron(0 21 ? * SUN,WED *)
+          enabled: false
+        - name: uat-rm-day-schedule-rule-9
+          schedule: cron(0 21 ? * THU *)
+          enabled: false
+      rm-allocation-prefetch-inputs:
+        rules:
+        - name: uat-rm-day-schedule-rule-1
+          schedule: cron(45 0-17/1,22,23 * * ? *)
+          enabled: false
+      rm-allocation-process-inputs:
+        sqs:
+          queue_name: test-rm-allocation-queues-rm-allocation-market-list
+          batch_size: 1
+          enabled: true
+          max_concurrency: 600
+          batching_window_seconds: 1
+      rm-allocation-scheduled-jobs:
+        sqs:
+          queue_name: test
+          batch_size: 10
+          enabled: false
+          max_concurrency: 500
+        rules:
+        - name: QCProcess
+          schedule: cron(30 17 ? * sat *)
+          enabled: false
+          description: Create min max table for historic and profile fares
+          input:
+            body:
+              modules:
+                gen_qc_fares_table: 1
+        - name: QC_Check
+          schedule: cron(30 17 ? * sun *)
+          enabled: false
+          description: Compare and check minMax tables with the original fares tables
+          input:
+            body:
+              modules:
+                qc_fares_check: 1
+        - name: connections
+          schedule: cron(*/15 * ? * * *)
+          enabled: false
+          description: all
+          input:
+            body:
+              modules:
+                mark_run_completed: 1
+                sftp_push: 1
+                connections: 1
+        - name: daily_rolling
+          schedule: cron(0 17 ? * MON-FRI *)
+          enabled: false
+          input:
+            body:
+              modules:
+                daily_rolling: 1
+        - name: noshowprobs
+          schedule: rate(5 hours)
+          enabled: false
+          description: noshowprobs
+          input:
+            body:
+              modules:
+                noShowProb: 1
+        - name: rm-allocation-report-gen
+          schedule: cron(*/5 * ? * * *)
+          enabled: true
+          description: Report Generation
+          input:
+            body:
+              modules:
+                alloc_summary: 1
+        - name: rm-allocation-sftp-error
+          schedule: cron(0/5 * ? * * *)
+          enabled: true
+          description: sftp error rate
+          input:
+            body:
+              modules:
+                sftp_error: 1
+                sftp_push: 1
+        - name: run_paused_runs
+          schedule: cron(*/5 * ? * * *)
+          enabled: false
+          input:
+            body:
+              modules:
+                run_paused_runs: 1
+        - name: schd_run_fail_alert
+          schedule: cron(0 * ? * * *)
+          enabled: false
+          input:
+            body:
+              modules:
+                schd_run_fail_alert: 1
+        - name: uat-check-adhocs-queue
+          schedule: cron(0/3 * ? * * *)
+          enabled: true
+          input:
+            body:
+              modules:
+                run_adhocs_queue: 1
+        - name: uat-rm-imp-forecast
+          schedule: cron(0 * * * ? *)
+          enabled: true
+          input:
+            body:
+              modules:
+                imputed_forecast: 1
+      rm-allocation-update-rbd:
+        sqs:
+          queue_name: test-rm-allocation-queues-rm-allocation-rbds
+          batch_size: 5
+          enabled: true
+          max_concurrency: 400
+          batching_window_seconds: 1
+      rm-allocation-update-rbd-ftp:
+        sqs:
+          queue_name: test-rm-allocation-queues-rm-allocation-rbds-ftp
+          batch_size: 10
+          enabled: true
+      rm-pricing-triggers:
+        sqs:
+          queue_name: rm-allocation-queues_rm-pricing-triggers
+          batch_size: 1
+          enabled: true

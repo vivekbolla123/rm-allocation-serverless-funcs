@@ -109,6 +109,10 @@ class MarketListRow:
         self.Adjustment_Factor = currParams.get("Adjustment_Factor", CONST_NA)
         self.Expected_PLF = currParams.get("Expected_PLF", CONST_NA)
         self.Flown_Target_Load = currParams.get("Flown_Target_Load", CONST_NA)
+        # Optional pre-computed imputed forecast supplied directly by the input
+        # source (used for local testing via the forecast_results.imp_forecast
+        # column). When "NA"/blank, imp_forecast is computed normally.
+        self.imp_forecast = currParams.get("imp_forecast", CONST_NA)
         self.forecast_model = currParams.get("forecast_model", CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
         self.forecastAllocFlag = parse_int_flag(currParams.get("forecastAllocFlag"), 0)

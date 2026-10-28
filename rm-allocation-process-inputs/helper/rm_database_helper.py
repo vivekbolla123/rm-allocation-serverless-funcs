@@ -286,6 +286,7 @@ class RMDatabaseHelper:
     "Expected_PLF": "$fr.Expected_PLF",
     "Flown_Target_Load": "$fr.Flown_Target_Load",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
+    "imp_forecast": "$fr.imp_forecast",
     "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},

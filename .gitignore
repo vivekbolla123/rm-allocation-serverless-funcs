@@ -1,11 +1,16 @@
 package
 *.pyc
-
+ 
 \venv
 *.log
 .vscode/
 .idea/
 local.env
 
+intermediate/
 # kiro
 .kiro
+ 
+# additive local folders
+additive_model_output/
+additive_model_cache/
