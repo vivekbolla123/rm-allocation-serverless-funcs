@@ -994,6 +994,17 @@ class RMDatabaseHelper:
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
                 "grpFareAnchor": str(latest_row.grpFareAnchor),
+                # Forecast Allocation diagnostics (Change Notes – 3) for analysis.
+                "forecastBand": str(getattr(latest_row, 'forecastBand', CONST_NA)),
+                "forecastTrend": str(getattr(latest_row, 'forecastTrend', CONST_NA)),
+                "forecastLSF": str(getattr(latest_row, 'forecastLSF', CONST_NA)),
+                "forecastLast3Fare": str(getattr(latest_row, 'forecastLast3Fare', CONST_NA)),
+                "forecastLast7Fare": str(getattr(latest_row, 'forecastLast7Fare', CONST_NA)),
+                "forecastMaxOwnFare": str(getattr(latest_row, 'forecastMaxOwnFare', CONST_NA)),
+                "forecastHighestFare": str(getattr(latest_row, 'forecastHighestFare', CONST_NA)),
+                "forecastMiddleFare": str(getattr(latest_row, 'forecastMiddleFare', CONST_NA)),
+                "forecastLowestFare": str(getattr(latest_row, 'forecastLowestFare', CONST_NA)),
+                "forecastFormula": str(getattr(latest_row, 'forecastFormula', CONST_NA)),
                 # Portfolio anchor split (R9) — direct-route rows get real
                 # values; connections / sales-inventory rows leave them as
                 # ``CONST_NA``.

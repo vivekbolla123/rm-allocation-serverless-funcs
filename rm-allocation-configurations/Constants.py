@@ -465,6 +465,8 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
     'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor',
+    'forecastBand', 'forecastTrend', 'forecastLSF', 'forecastLast3Fare', 'forecastLast7Fare',
+    'forecastMaxOwnFare', 'forecastHighestFare', 'forecastMiddleFare', 'forecastLowestFare', 'forecastFormula',
     'NG_LF_Forecast', 'NG_AF_Forecast', 'NG_Historical_current_booked',
     'NG_Opening_fare', 'NG_FirstRBD', 'NG_Strategy_fare', 'NG_Anchor_fare'
 ]
