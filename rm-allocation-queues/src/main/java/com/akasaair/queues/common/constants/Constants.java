@@ -57,6 +57,8 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final String AUDIT_LAST_CHANGED_AT = "lastChangedAt";
     public static final String AUDIT_LAST_CHANGE_SOURCE = "lastChangeSource";
     public static final String AUDIT_SOURCE_UPLOAD = "upload";
+    // Main market list upserts: fields written only when a row is first inserted ($setOnInsert)
+    public static final List<String> MARKET_LIST_INSERT_ONLY_FIELDS = List.of("UUID", "createdAt");
     public static Map<String, String> STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
     public static Map<String, String> FORECAST_STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
 //    public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");

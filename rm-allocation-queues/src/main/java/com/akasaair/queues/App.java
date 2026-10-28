@@ -4533,10 +4533,10 @@ public class App implements CommandLineRunner {
 
     /**
      * Generic batched upsert: for each entity issues
-     * updateOne(filter, {$set: fields + audit fields, $setOnInsert: createdAt}, upsert=true),
+     * updateOne(filter, {$set: data fields + audit fields, $setOnInsert: UUID + createdAt}, upsert=true),
      * grouped into unordered bulkWrite batches.
-     * createdAt is preserved on existing documents and only set on insert.
-     * lastChangedBy / lastChangedAt / lastChangeSource are set on every write.
+     * - UUID and createdAt are only written on insert, so existing documents keep their original values.
+     * - lastChangedBy / lastChangedAt / lastChangeSource are set on every write.
      */
     private <T> void batchedUpsert(List<T> entities, String collectionName,
                                    Function<T, Bson> filterBuilder,
@@ -4566,12 +4566,15 @@ public class App implements CommandLineRunner {
                 List<WriteModel<Document>> ops = new ArrayList<>(batch.size());
                 for (T entity : batch) {
                     Document fields = documentBuilder.apply(entity);
-                    fields.remove("createdAt");
+                    Document insertOnly = new Document();
+                    for (String field : MARKET_LIST_INSERT_ONLY_FIELDS) {
+                        insertOnly.append(field, fields.remove(field));
+                    }
                     fields.append(AUDIT_LAST_CHANGED_BY, changedBy)
                             .append(AUDIT_LAST_CHANGED_AT, now)
                             .append(AUDIT_LAST_CHANGE_SOURCE, AUDIT_SOURCE_UPLOAD);
                     Document update = new Document("$set", fields)
-                            .append("$setOnInsert", new Document("createdAt", now));
+                            .append("$setOnInsert", insertOnly);
                     ops.add(new UpdateOneModel<>(filterBuilder.apply(entity), update, upsertOptions));
                 }
 
