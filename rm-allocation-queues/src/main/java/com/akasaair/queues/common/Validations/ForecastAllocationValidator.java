@@ -13,16 +13,26 @@ public class ForecastAllocationValidator {
     ));
     private static final List<String> CANONICAL_TRENDS = Arrays.asList("Increasing", "Stable", "Decreasing");
 
+    // Number of forecast bands in the standardized Strategy Grid (Change Notes – 3).
+    private static final int MAX_BAND = 7;
+
     private static final Set<String> ALLOWED_FORMULA_WORDS = new HashSet<>(Arrays.asList(
             "max", "min", "average", "avg", "mean", "median", "middle", "highest", "lowest",
-            "strategy", "profile", "lsf", "fare", "last", "sold", "selling", "x"
+            "strategy", "profile", "lsf", "fare", "last", "sold", "selling", "x",
+            // New Change Notes – 3 abbreviations
+            "maxown", "max_own", "own", "imputedforecast", "imputedforecastfraction",
+            "imputed", "forecast", "fraction"
     ));
     private static final List<String> CANONICAL_FORMULA_TOKENS = Arrays.asList(
-            "Strategy", "Profile", "LSF", "Highest", "Middle", "Lowest", "Max", "Min", "Average", "Median"
+            "Strategy", "Profile", "LSF", "Highest", "Middle", "Lowest", "Max", "Min", "Average", "Median",
+            "MaxOwn", "ImputedForecast", "ImputedForecastFraction"
     );
 
-    private static final Pattern FORMULA_CHAR_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\+\\-\\*/%\\(\\),.]+$");
-    private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[a-zA-Z_]+");
+    // Allow underscores so tokens like Interpolate_1 / Max_Own validate cleanly.
+    private static final Pattern FORMULA_CHAR_PATTERN = Pattern.compile("^[a-zA-Z0-9_\\s\\+\\-\\*/%\\(\\),.]+$");
+    // Include digits/underscores so compound tokens like Interpolate_1 and Max_Own
+    // tokenise as a single word rather than being split (which would strand "1").
+    private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
     private static final Pattern EMPTY_PAREN_PATTERN = Pattern.compile("\\(\\s*\\)");
     private static final Pattern CONSECUTIVE_OP_PATTERN = Pattern.compile("([\\+\\-\\*/,])\\s*\\1");
 
@@ -189,8 +199,8 @@ public class ForecastAllocationValidator {
             int band;
             try {
                 band = Integer.parseInt(bandStr);
-                if (band < 1 || band > 4) {
-                    errors.add(linePrefix + "Invalid band '" + bandStr + "'. Must be an integer between 1 and 4.");
+                if (band < 1 || band > MAX_BAND) {
+                    errors.add(linePrefix + "Invalid band '" + bandStr + "'. Must be an integer between 1 and " + MAX_BAND + ".");
                     isValid = false;
                 }
             } catch (NumberFormatException e) {
@@ -214,7 +224,7 @@ public class ForecastAllocationValidator {
             }
 
             // 3. Validate duplicate (band, trend)
-            if (band >= 1 && band <= 4 && ALLOWED_TRENDS.contains(trendStr.toLowerCase())) {
+            if (band >= 1 && band <= MAX_BAND && ALLOWED_TRENDS.contains(trendStr.toLowerCase())) {
                 String key = band + "_" + trendStr.toLowerCase();
                 if (seenCombinations.contains(key)) {
                     errors.add(linePrefix + "Duplicate combination for Band " + band + " and Trend " + trendStr + ".");
@@ -273,9 +283,9 @@ public class ForecastAllocationValidator {
             }
         }
 
-        // 5. Validate completeness: all 12 combinations required
+        // 5. Validate completeness: all 21 combinations required (7 bands x 3 trends)
         List<String> missingCombinations = new ArrayList<>();
-        for (int b = 1; b <= 4; b++) {
+        for (int b = 1; b <= MAX_BAND; b++) {
             for (String t : CANONICAL_TRENDS) {
                 String key = b + "_" + t.toLowerCase();
                 if (!seenCombinations.contains(key)) {
@@ -361,8 +371,8 @@ public class ForecastAllocationValidator {
             int band;
             try {
                 band = Integer.parseInt(bandStr);
-                if (band < 1 || band > 4) {
-                    errors.add(linePrefix + "Invalid band '" + bandStr + "'. Must be an integer between 1 and 4.");
+                if (band < 1 || band > MAX_BAND) {
+                    errors.add(linePrefix + "Invalid band '" + bandStr + "'. Must be an integer between 1 and " + MAX_BAND + ".");
                     isValid = false;
                 } else if (seenBands.contains(band)) {
                     errors.add(linePrefix + "Duplicate band definition for Band " + band + ".");

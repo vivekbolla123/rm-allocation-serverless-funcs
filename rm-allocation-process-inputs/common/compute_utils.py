@@ -1,5 +1,6 @@
 from Constants import *
 import math
+import os
 import json
 import logging
 import pandas as pd
@@ -109,7 +110,39 @@ def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
     - Flown_Target_Load == CT_r  (adjustment undefined / denominator zero)
     - missing refresh params
     - adjusted gain NaN
+
+  UAT override:
+    In the UAT environment (env == 'uat'), the imputed forecast is set equal to
+    the forecast PLF (no BRD recomputation). This takes precedence over the
+    local-input ``imp_forecast`` column and the full computation below.
+
+  Local-input override:
+    When the input source supplies a pre-computed imputed forecast directly
+    (the ``imp_forecast`` column on currParams, e.g. from the local
+    ``forecast_results`` CSV), and that value is not "NA", it is used as-is
+    and the BRD recomputation is skipped. When the column is "NA"/blank
+    (as in production), the full computation below runs instead.
   """
+  # UAT override: imputed forecast == forecast PLF (env detected the same way as
+  # configsettings.py: the 'env' environment variable, default 'uat').
+  if not os.environ.get('env', 'prod') == 'prod':
+    try:
+      fp = float(forecast_plf)
+      if not math.isnan(fp):
+        return fp
+    except (ValueError, TypeError):
+      pass
+
+  # Local-input override: use the pre-supplied imp_forecast column if it isn't NA.
+  pre_imp = getattr(getattr(self, 'currParams', None), 'imp_forecast', CONST_NA)
+  if pre_imp not in (None, CONST_NA, '', 'NA', 'nan'):
+    try:
+      pre_imp_val = float(pre_imp)
+      if not math.isnan(pre_imp_val):
+        return pre_imp_val
+    except (ValueError, TypeError):
+      pass
+
   try:
     capacity = float(capacity)
     if capacity <= 0:
