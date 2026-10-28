@@ -41,32 +41,3 @@ environments:
         queue_name: test-rm-allocation-queues-rm-allocation-rbds-ftp
         batch_size: 10
         enabled: true
-  prod:
-    account_id: '471112573018'
-    region: ap-south-1
-    execution_role_arn: ''
-    lambda:
-      name: prod-rm-lambda-rm-allocation-update-rbd-ftp
-      image_uri: 471112573018.dkr.ecr.ap-south-1.amazonaws.com/prod-rm-ecr-rm-allocation-update-rbd-ftp:latest
-      memory: 2048
-      timeout: 900
-      ephemeral_storage: 4096
-      dd_service: rm-update-rbd-ftp
-      dd_version: latest
-      log_retention_days: 90
-      env_vars: {}
-    vpc:
-      vpc_id: vpc-07b9a52de9cb71261
-      subnets:
-      - subnet-0123456789abcdef0
-      - subnet-0123456789abcdef1
-      security_groups:
-      - sg-0123456789abcdef0
-    secrets:
-      dd_api_key_ssm: /copilot/qp/prod/secrets/DD_API_KEY
-    triggers:
-      sqs:
-        queue_name: rm-allocation-queues_rm-allocation-rbds-ftp
-        batch_size: 2
-        enabled: true
-        max_concurrency: 10

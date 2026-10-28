@@ -3,20 +3,17 @@
 Shared environment configuration for the lambda-rename migration scripts
 (fetch_services.py, update_services.py, remove_old_targets.py).
 
-A single ENV toggle in each script ("uat" or "prod") drives all names here,
-so the old/new lambda mapping is defined in exactly one place.
+A single ENV toggle in each script ("uat") drives all names here, so the
+old/new lambda mapping is defined in exactly one place.
 
 Naming facts captured from the deploy scripts:
 
-  New names (both envs):  {env}-rm-lambda-<service>
+  New names:  uat-rm-lambda-<service>
 
   Old UAT names:
     * additive-process / additive-prefetch -> uat-rm-additive-<svc tail>
     * everything else -> uat-rm-allocation-serverless-funcs-<service>
                           (hyphen-separated)
-  Old PROD names:
-    * everything -> rm-allocation-serverless-funcs_<service>
-                     (underscore-separated, no env prefix)
 """
 
 # The 9 services being migrated (canonical service names).
@@ -35,15 +32,14 @@ SERVICES = [
 # AWS account id per environment (for reference / validation).
 ACCOUNT_ID = {
     "uat": "891377165721",
-    "prod": "471112573018",
 }
 
 
 def _normalize_env(env):
     env = (env or "").strip().lower()
-    if env not in ("uat", "prod"):
+    if env != "uat":
         raise ValueError(
-            f"Unsupported ENV '{env}'. Use 'uat' or 'prod'."
+            f"Unsupported ENV '{env}'. Only 'uat' is supported."
         )
     return env
 
@@ -55,14 +51,9 @@ def new_lambda_name(env, service):
 
 
 def old_lambda_name(env, service):
-    """Old lambda name, reproducing the pre-rename naming per environment."""
+    """Old lambda name, reproducing the pre-rename UAT naming."""
     env = _normalize_env(env)
 
-    if env == "prod":
-        # All prod services used the underscore prefix form.
-        return f"rm-allocation-serverless-funcs_{service}"
-
-    # UAT.
     if service in ("rm-additive-process", "rm-additive-prefetch"):
         # Short form, e.g. uat-rm-additive-process.
         return f"uat-{service}"

@@ -3,13 +3,12 @@ Description: >
   Phase 2 - Activation Stack
   Activates the new RM Lambda functions by wiring all event triggers:
   1. SQS EventSourceMappings with batch size, batching window, and concurrency scaling.
-  2. EventBridge Scheduler Schedules targeting new Lambdas.
-  3. EventBridge Rules target activation (attaching -new-lambda targets and granting invoke permissions).
+  2. EventBridge Rules target activation (attaching -new-lambda targets and granting invoke permissions).
 
 Parameters:
   Environment:
     Type: String
-    AllowedValues: [uat, prod]
+    AllowedValues: [uat]
     Default: uat
     Description: Deployment target environment.
 
@@ -19,29 +18,13 @@ Parameters:
     Default: 'true'
     Description: Whether to create SQS event source mappings.
 
-  ActivateScheduler:
-    Type: String
-    AllowedValues: ['true', 'false']
-    Default: 'true'
-    Description: Whether to activate EventBridge Scheduler schedules (prod).
-
   ActivateEventBridgeRules:
     Type: String
     AllowedValues: ['true', 'false']
     Default: 'true'
     Description: Whether to add new targets to EventBridge rules.
 
-  SchedulerExecutionRoleArn:
-    Type: String
-    Default: ''
-    Description: IAM Role ARN for EventBridge Scheduler. If empty, a dedicated role is created.
-
   # SQS Queue ARNs (Configured per environment with defaults)
-  QueueArnAdditiveProcess:
-    Type: String
-    Default: 'arn:aws:sqs:ap-south-1:471112573018:rm-additive-model'
-    Description: SQS ARN for rm-additive-process (prod)
-
   QueueArnFetchInputs:
     Type: String
     Default: 'arn:aws:sqs:ap-south-1:891377165721:test-rm-allocation-queues-rm-allocation-fetch-inputs'
@@ -73,48 +56,13 @@ Parameters:
     Description: SQS ARN for rm-pricing-triggers (uat)
 
 Conditions:
-  IsProd: !Equals [!Ref Environment, 'prod']
   IsUat: !Equals [!Ref Environment, 'uat']
   EnableUatSqs: !And
     - !Equals [!Ref Environment, 'uat']
     - !Equals [!Ref ActivateSqs, 'true']
-  EnableProdSqs: !And
-    - !Equals [!Ref Environment, 'prod']
-    - !Equals [!Ref ActivateSqs, 'true']
-  EnableScheduler: !And
-    - !Equals [!Ref ActivateScheduler, 'true']
-    - !Equals [!Ref Environment, 'prod']
   EnableEbRules: !Equals [!Ref ActivateEventBridgeRules, 'true']
-  CreateSchedulerRole: !And
-    - !Equals [!Ref ActivateScheduler, 'true']
-    - !Equals [!Ref Environment, 'prod']
-    - !Equals [!Ref SchedulerExecutionRoleArn, '']
 
 Resources:
-  # =========================================================================
-  # Scheduler IAM Execution Role (Created if not provided)
-  # =========================================================================
-  DefaultSchedulerExecutionRole:
-    Type: AWS::IAM::Role
-    Condition: CreateSchedulerRole
-    Properties:
-      RoleName: !Sub "${Environment}-rm-scheduler-execution-role"
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: [scheduler.amazonaws.com]
-            Action: ['sts:AssumeRole']
-      Policies:
-        - PolicyName: InvokeLambdaPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: ['lambda:InvokeFunction']
-                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${Environment}-rm-lambda-*"
-
   # =========================================================================
   # SQS Event Source Mappings - UAT
   # =========================================================================
@@ -179,231 +127,6 @@ Resources:
       EventSourceArn: !Ref QueueArnPricingTriggers
       BatchSize: 1
       Enabled: true
-
-  # =========================================================================
-  # SQS Event Source Mappings - PROD
-  # =========================================================================
-  ProdAdditiveProcessSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-additive-process"
-      EventSourceArn: !Ref QueueArnAdditiveProcess
-      BatchSize: 1
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 60
-
-  ProdFetchInputsSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-fetch-inputs"
-      EventSourceArn: !Ref QueueArnFetchInputs
-      BatchSize: 1
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 10
-
-  ProdProcessInputsSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-process-inputs"
-      EventSourceArn: !Ref QueueArnProcessInputs
-      BatchSize: 10
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 300
-
-  ProdScheduledJobsSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-      EventSourceArn: !Ref QueueArnScheduledJobs
-      BatchSize: 1
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 5
-
-  ProdUpdateRbdSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-update-rbd"
-      EventSourceArn: !Ref QueueArnUpdateRbd
-      BatchSize: 5
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 1000
-
-  ProdUpdateRbdFtpSqsMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Condition: EnableProdSqs
-    Properties:
-      FunctionName: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-update-rbd-ftp"
-      EventSourceArn: !Ref QueueArnUpdateRbdFtp
-      BatchSize: 2
-      Enabled: true
-      ScalingConfig:
-        MaximumConcurrency: 10
-
-  # =========================================================================
-  # EventBridge Scheduler - PROD (9 Schedules)
-  # =========================================================================
-  ProdScheduleAdditivePrefetchDaily:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: rm-additive-schedule-daily-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(30 8 * * ? *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Additive prefetch daily schedule for prod-rm-lambda-rm-additive-prefetch"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-additive-prefetch"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"modules": {"additive_prefetch": 1}}'
-
-  ProdScheduleQCcheck:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: QCcheck-new-lambda
-      GroupName: default
-      State: DISABLED
-      ScheduleExpression: "cron(0 10 1 * ? *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "QCcheck schedule for prod-rm-lambda-rm-allocation-scheduled-jobs"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"modules\":{\"qc_fares_check\":1}}"}'
-
-  ProdScheduleMlForecastScoreIntl:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: RMScheduleJob_ML_Forecast_Score_International-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(30 8 * * ? *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "International ML forecast score calculation"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"modules\":{\"ml_forecast_score\":1,\"is_intl\":true}}"}'
-
-  ProdScheduleDefaultMarketListRefresh0to60:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: RMScheduleJob_DefaultMarketListRefresh_0_60-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(0 1 ? * 3,5,6 *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Market list refresh for 0-60 day intervals"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"overrides\":{\"start_day\":0,\"end_day\":60}}"}'
-
-  ProdScheduleQCprocess:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: QCprocess-new-lambda
-      GroupName: default
-      State: DISABLED
-      ScheduleExpression: "cron(0 10 L * ? *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "QCprocess schedule for prod-rm-lambda-rm-allocation-scheduled-jobs"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"modules\":{\"gen_qc_fares_table\":1}}"}'
-
-  ProdScheduleDefaultMarketListRefresh0to180:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: RMScheduleJob_DefaultMarketListRefresh_0_180-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(0 1 ? * 2,4,7 *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Market list refresh for 0-180 day intervals"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"overrides\":{\"start_day\":0,\"end_day\":180}}"}'
-
-  ProdScheduleDefaultMarketListRefresh0to365:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: RMScheduleJob_DefaultMarketListRefresh_0_365-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(0 2 ? * 1 *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Market list refresh for 0-365 day intervals"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"overrides\":{\"start_day\":0,\"end_day\":365}}"}'
-
-  ProdScheduleHoldBookingAlert:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: RMScheduleJob_HoldBookingAlert-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "rate(15 minutes)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Hold booking alert monitor running every 15 minutes"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-allocation-scheduled-jobs"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"modules\":{\"hold_booking_alert\":1}}"}'
-
-  ProdSchedulePricingTriggersSectorMonitor:
-    Type: AWS::Scheduler::Schedule
-    Condition: EnableScheduler
-    Properties:
-      Name: rm-pricing-triggers-sector-monitor-new-lambda
-      GroupName: default
-      State: ENABLED
-      ScheduleExpression: "cron(0 10,13,17 * * ? *)"
-      ScheduleExpressionTimezone: "Asia/Calcutta"
-      FlexibleTimeWindow:
-        Mode: "OFF"
-      Description: "Sector monitor schedule for prod-rm-lambda-rm-pricing-triggers"
-      Target:
-        Arn: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:prod-rm-lambda-rm-pricing-triggers"
-        RoleArn: !If [CreateSchedulerRole, !GetAtt DefaultSchedulerExecutionRole.Arn, !Ref SchedulerExecutionRoleArn]
-        Input: '{"body": "{\"modules\":{\"sector_monitor\":1}}"}'
 
   # =========================================================================
   # Custom Resource for EventBridge Rule Target Activation & Permissions
@@ -498,9 +221,9 @@ Resources:
                                   continue
                               for t in targets:
                                   old_arn = t.get('Arn', '')
-                                  if 'rm-allocation-serverless-funcs' in old_arn or 'uat-rm-additive' in old_arn:
+                                  if 'uat-rm-allocation-serverless-funcs' in old_arn or 'uat-rm-additive' in old_arn:
                                       old_fn = old_arn.split(':function:')[-1]
-                                      svc = old_fn.replace('rm-allocation-serverless-funcs_', '').replace('uat-rm-allocation-serverless-funcs-', '').replace('uat-', '')
+                                      svc = old_fn.replace('uat-rm-allocation-serverless-funcs-', '').replace('uat-', '')
                                       new_fn = f"{env}-rm-lambda-{svc}"
                                       new_arn = f"arn:aws:lambda:{boto3.Session().region_name}:{old_arn.split(':')[4]}:function:{new_fn}"
                                       

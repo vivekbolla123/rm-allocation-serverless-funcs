@@ -16,7 +16,7 @@ DEFAULT_REGION = "ap-south-1"
 # ===========================================================================
 # Set ENV to "uat" or "prod". Everything else (old/new lambda names, output
 # CSV name) is derived from this single toggle.
-ENV = "prod"
+ENV = "uat"
 
 
 from env_config import build_lambda_map, output_csv_name  # noqa: E402

@@ -97,23 +97,6 @@ ENVIRONMENTS_BASE = {
         },
         "execution_role_arn": "arn:aws:iam::891377165721:role/lambda-execution-role",
     },
-    "prod": {
-        "account_id": "471112573018",
-        "vpc": {
-            "vpc_id": "vpc-07b9a52de9cb71261",
-            "subnets": [
-                "subnet-0123456789abcdef0",
-                "subnet-0123456789abcdef1",
-            ],
-            "security_groups": [
-                "sg-0123456789abcdef0",
-            ],
-        },
-        "secrets": {
-            "dd_api_key_ssm": "/copilot/qp/prod/secrets/DD_API_KEY",
-        },
-        "execution_role_arn": "",
-    },
 }
 
 
@@ -135,8 +118,8 @@ def parse_payload(inp_str):
 def get_canonical_service(name):
     s = name
     for prefix in [
-        "uat-rm-lambda-", "prod-rm-lambda-",
-        "uat-rm-allocation-serverless-funcs-", "rm-allocation-serverless-funcs_",
+        "uat-rm-lambda-",
+        "uat-rm-allocation-serverless-funcs-",
         "uat-"
     ]:
         if s.startswith(prefix):
@@ -245,8 +228,8 @@ def main():
         yaml.dump(config, f, default_flow_style=False, sort_keys=False, width=120)
     print(f"Wrote standard environment config to: {yaml_path}")
 
-    # Generate standard CloudFormation parameter JSON files for UAT and PROD
-    for env in ["uat", "prod"]:
+    # Generate standard CloudFormation parameter JSON files for UAT
+    for env in ["uat"]:
         env_data = config["environments"][env]
         params = [
             {"ParameterKey": "Environment", "ParameterValue": env},

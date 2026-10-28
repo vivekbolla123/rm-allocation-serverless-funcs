@@ -41,36 +41,3 @@ environments:
         queue_name: rm-allocation-queues_rm-pricing-triggers
         batch_size: 1
         enabled: true
-  prod:
-    account_id: '471112573018'
-    region: ap-south-1
-    execution_role_arn: ''
-    lambda:
-      name: prod-rm-lambda-rm-pricing-triggers
-      image_uri: 471112573018.dkr.ecr.ap-south-1.amazonaws.com/prod-rm-ecr-rm-pricing-triggers:latest
-      memory: 4096
-      timeout: 900
-      ephemeral_storage: 4096
-      dd_service: rm-pricing-tiggers
-      dd_version: latest
-      log_retention_days: 90
-      env_vars: {}
-    vpc:
-      vpc_id: vpc-07b9a52de9cb71261
-      subnets:
-      - subnet-0123456789abcdef0
-      - subnet-0123456789abcdef1
-      security_groups:
-      - sg-0123456789abcdef0
-    secrets:
-      dd_api_key_ssm: /copilot/qp/prod/secrets/DD_API_KEY
-    triggers:
-      schedules:
-      - name: rm-pricing-triggers-sector-monitor
-        schedule: cron(0 10,13,17 * * ? *)
-        timezone: Asia/Calcutta
-        enabled: true
-        input:
-          body:
-            modules:
-              sector_monitor: 1
