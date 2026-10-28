@@ -134,14 +134,14 @@ def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
       pass
 
   # Local-input override: use the pre-supplied imp_forecast column if it isn't NA.
-  pre_imp = getattr(getattr(self, 'currParams', None), 'imp_forecast', CONST_NA)
-  if pre_imp not in (None, CONST_NA, '', 'NA', 'nan'):
-    try:
-      pre_imp_val = float(pre_imp)
-      if not math.isnan(pre_imp_val):
-        return pre_imp_val
-    except (ValueError, TypeError):
-      pass
+  # pre_imp = getattr(getattr(self, 'currParams', None), 'imp_forecast', CONST_NA)
+  # if pre_imp not in (None, CONST_NA, '', 'NA', 'nan'):
+  #   try:
+  #     pre_imp_val = float(pre_imp)
+  #     if not math.isnan(pre_imp_val):
+  #       return pre_imp_val
+  #   except (ValueError, TypeError):
+  #     pass
 
   try:
     capacity = float(capacity)
