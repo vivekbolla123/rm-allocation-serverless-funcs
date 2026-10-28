@@ -988,7 +988,12 @@ class DynAllocConnections:
 
             AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
             AUFrame = AUFrame.drop(
-                columns=["b2brunid", "b2crunid", "au_column_length"])
+                columns=[
+                    "b2brunid", "b2crunid", "au_column_length",
+                    "nav_audit_id", "nextgen_rbd_details", "flight_number", "sector", "departure_date"
+                ],
+                errors="ignore"
+            )
             AUFrame.columns = AUlist
             AUFrame.to_csv(CONST_AU_GRID_CONNECTIONS_FILE_PATH, index=False)
         if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and len(self.allocResults) > 0:

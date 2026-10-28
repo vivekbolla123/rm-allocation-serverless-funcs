@@ -39,6 +39,7 @@ class ConstantsUtils:
         self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
         self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
         self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
+        self.LAST_SOLD_FARE_THRESHOLD_NDO45 = LAST_SOLD_FARE_THRESHOLD_NDO45
         self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
@@ -299,6 +300,8 @@ class ConstantsUtils:
                 self.CUG_SEATS_PERCENT = float(parameter_value)
             elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
+            elif parameter_key == LAST_SOLD_FARE_THRESHOLD_NDO45_KEY:
+                self.LAST_SOLD_FARE_THRESHOLD_NDO45 = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:
                 self.LAST_N_AVG_FARE = int(parameter_value)
             elif parameter_key == MFMIN0_KEY:
