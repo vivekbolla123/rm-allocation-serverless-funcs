@@ -1331,7 +1331,6 @@ class DynAlloc:
 		state.openDataB2C_details = openDataB2C_details
 		state.openDataB2B_details = openDataB2B_details
 		state.profileFare = profileFare
-		state.profileFare_for_calc = profileFare_for_calc
 		state.profileFaresData = profileFaresData
 		state.b2b_anchor_source = b2b_anchor_source
 		state.determined_overBookingFare = determined_overBookingFare
@@ -2159,8 +2158,6 @@ class DynAlloc:
 		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
 		conversion_rate = state.conversion_rate
 		currency = state.currency
-		param_profileFares = getattr(self.currParams, 'profileFares', 1)
-		profileFare_for_calc = getattr(state, 'profileFare_for_calc', CONST_NA)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
 		if overBookingCount > 0: # Add Overbooking note to FareResult
