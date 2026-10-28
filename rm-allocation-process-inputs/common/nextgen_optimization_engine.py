@@ -1881,7 +1881,11 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
-                        if daily_lf is not None and 0.0 < daily_lf <= 1.0:
+                        # LF_Forecast_Revised is a 0-1 fraction; scale to 0-100%.
+                        # PLF can exceed 100% (capped ~110%), so a fraction may be
+                        # > 1.0 (e.g. 1.01 == 101%). Treat values <= 2.0 as
+                        # fractions; higher values are already percentages.
+                        if daily_lf is not None and 0.0 < daily_lf <= 2.0:
                             daily_lf = daily_lf * 100.0
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)

@@ -1728,7 +1728,14 @@ class DynAlloc:
 						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
 							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
 							if daily_lf is not None:
-								if 0.0 < daily_lf <= 1.0:
+								# LF_Forecast_Revised is stored as a 0-1 fraction
+								# (pred_flown_rev / cap). Scale to a 0-100 percentage.
+								# PLF can legitimately exceed 100% (overbooked / high
+								# demand, capped at ~110%), so a fraction may be > 1.0
+								# (e.g. 1.01 == 101%). Use a threshold above that cap
+								# to decide scale: values <= 2.0 are fractions, higher
+								# values are already percentages.
+								if 0.0 < daily_lf <= 2.0:
 									daily_lf = daily_lf * 100.0
 								ng_summary['NG_LF_Forecast'] = round(daily_lf, 4)
 						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
