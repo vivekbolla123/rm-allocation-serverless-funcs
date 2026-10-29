@@ -1731,11 +1731,18 @@ class NextGenOptimizationEngine:
                 ha_comp = float(hardanchor)
                 ha_allin = float(hardanchor)
 
-        # The effective floor on opening fare is max of backstop and hardanchor
-        eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
-        eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
+        # The effective floor on opening fare is the backstop only.
+        # Hardanchor is NOT a floor: it is a CAP (ceiling) that can only pull the
+        # opening fare DOWN, matching the legacy anchor logic
+        # (determine_rbd.py: min(fare, hardAnchor), applied only when
+        # hardAnchor < fare and PLF is below the threshold). Hardanchor was
+        # already PLF-gated at resolution time, so ha_comp/ha_allin being set
+        # here means the cap is active. It is applied after the opening fare is
+        # resolved, below.
+        eff_floor_comp = bs_comp
+        eff_floor_allin = bs_allin
 
-        # Effective target response fare considers floor (backstop / hardanchor)
+        # Effective target response fare considers the backstop floor
         eff_target_fare = eff_response_fare
         if eff_floor_comp is not None:
             eff_target_fare = max(eff_target_fare, eff_floor_comp)
@@ -1783,9 +1790,34 @@ class NextGenOptimizationEngine:
             else:
                 opening_rbd = str(final_df['FareBucket'].iloc[-1])
 
+        # Hardanchor CAP: if the resolved opening fare exceeds the hardanchor,
+        # pull the opening fare DOWN to the hardanchor level. Hardanchor never
+        # raises the opening fare. When filed levels exist, snap down to the
+        # highest filed level at or below the hardanchor (airline component);
+        # otherwise cap the raw opening fare value. Respect the backstop floor.
+        if ha_comp is not None and ha_comp > 0 and opening_fare > ha_comp + 1e-4:
+            if filed_levels:
+                ha_cand = [fl for fl in filed_levels if fl['fare'] <= ha_comp + 1e-4]
+                if eff_floor_comp is not None:
+                    ha_cand = [fl for fl in ha_cand if fl['fare'] >= eff_floor_comp - 1e-4]
+                if ha_cand:
+                    capped_filed = ha_cand[0]  # filed_levels is descending: highest <= hardanchor
+                    opening_fare = float(capped_filed['fare'])
+                    opening_rbd = capped_filed['RBD']
+                    open_filed = capped_filed
+            else:
+                opening_fare = float(ha_comp)
+                if eff_floor_comp is not None and opening_fare < eff_floor_comp:
+                    opening_fare = eff_floor_comp
+
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
         if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
             opening_fare_allin = eff_floor_allin
+        # Hardanchor cap on the all-in opening fare (never raise above hardanchor all-in)
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+            if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+                opening_fare_allin = eff_floor_allin
 
         # Allocate inventory for each of the 51 fare levels:
         # QP fare RBDs below opening fare or below floor get AU=0.
@@ -1899,6 +1931,13 @@ class NextGenOptimizationEngine:
             opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route)
         else:
             opening_fare_allin = opening_fare
+        # Re-assert the hardanchor cap and backstop floor on the all-in opening fare.
+        # open_filed was already snapped down to the hardanchor level above, but
+        # guard here so the all-in value can never exceed the hardanchor.
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+        if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+            opening_fare_allin = eff_floor_allin
         # Strategy fare for viewing/display: show the fare from grid calculation (eff_response_fare), not ladder-mapped
         display_strategy_fare = eff_response_fare
         display_strategy_fare_allin = tax_helper.airline_component_to_allin(display_strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else display_strategy_fare
