@@ -242,8 +242,8 @@ if env == 'uat':
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds-ftp"
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
-    FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
-    PREFETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs"
+    FETCH_INPUTS_LAMBDA = "uat-rm-lambda-rm-allocation-fetch-inputs"
+    PREFETCH_INPUTS_LAMBDA = "uat-rm-lambda-rm-allocation-prefetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
@@ -267,7 +267,7 @@ if env == 'uat':
     PA_FILE_PATH = 'uat/PA/'
     ADDITIVE_MODEL_BUCKET = "uat-qp-s3-fs"
     ADDITIVE_MODEL_FILE_PATH = 'uat/additive_model/'
-    ADDITIVE_PROCESS_LAMBDA_NAME = "uat-rm-additive-process"
+    ADDITIVE_PROCESS_LAMBDA_NAME = "uat-rm-lambda-rm-additive-process"
     ADDITIVE_GLUE_NAME = "uat-rm_additive_model"
     ADDITIVE_SQS_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-additive-model"
 

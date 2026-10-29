@@ -45,5 +45,11 @@ class OutputSummaryNextGen:
         self.status = CONST_NA
         self.allocationStatus = CONST_NA
 
+        # Currency conversion applied to the weighted-file-derived (INR) fares.
+        # ConversionRate is the INR -> home-currency multiplier (1.0 when no
+        # conversion); Currency is the resolved home-currency code ('INR' default).
+        self.ConversionRate = 1.0
+        self.Currency = 'INR'
+
     def to_dict(self):
         return {col: getattr(self, col, CONST_NA) for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER}

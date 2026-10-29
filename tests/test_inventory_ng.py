@@ -17,7 +17,7 @@ from helpers.utils.common_utils import (
 class TestInventoryNG:
 
     def test_inventory_ng_column_specification(self):
-        """Verify that INVENTORY_NG_COLUMNS contains all 50 columns in exact order."""
+        """Verify that INVENTORY_NG_COLUMNS contains all 53 columns in exact order."""
         expected_columns = [
             'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
             'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
@@ -27,9 +27,10 @@ class TestInventoryNG:
             'Capped_Predicted_Flown_Revised', 'A_cap', 'Current_Revenue', 'Expected_Revenue',
             'Total_Expected_Revenue', 'Predicted_Revenue', 'SnapshotDate', 'Tagging',
             'FareBucket', 'sigma', 'STD_future', 'qp_b2c_min', 'sigma_bar', 'F_j',
-            'protection_limit_yj', 'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3'
+            'protection_limit_yj', 'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3',
+            'ConversionRate', 'Currency'
         ]
-        assert len(INVENTORY_NG_COLUMNS) == 51
+        assert len(INVENTORY_NG_COLUMNS) == 53
         assert INVENTORY_NG_COLUMNS == expected_columns
 
     def test_single_flight_inventory_ng_calculations(self):
