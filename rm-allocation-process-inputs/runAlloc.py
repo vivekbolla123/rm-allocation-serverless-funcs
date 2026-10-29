@@ -2157,7 +2157,7 @@ class DynAlloc:
 		if b2c_ladder_df is None or b2c_ladder_df.empty:
 			return []
 
-		fare_col = next((c for c in ['fare', 'TOTAL', 'Fare', 'total', 'Amount'] if c in b2c_ladder_df.columns), None)
+		fare_col = next((c for c in ['TOTAL'] if c in b2c_ladder_df.columns), None)
 		if not fare_col:
 			return []
 
