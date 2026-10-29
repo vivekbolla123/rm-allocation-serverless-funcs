@@ -73,6 +73,18 @@ class OutputSummary:
         self.grpAdjPLF=CONST_NA
         self.grpFareAnchor=CONST_NA
 
+        # Forecast Allocation diagnostics (Change Notes – 3) — surfaced for analysis.
+        self.forecastBand=CONST_NA
+        self.forecastTrend=CONST_NA
+        self.forecastLSF=CONST_NA
+        self.forecastLast3Fare=CONST_NA
+        self.forecastLast7Fare=CONST_NA
+        self.forecastMaxOwnFare=CONST_NA
+        self.forecastHighestFare=CONST_NA
+        self.forecastMiddleFare=CONST_NA
+        self.forecastLowestFare=CONST_NA
+        self.forecastFormula=CONST_NA
+
         # Portfolio anchor split (R9) — populated for direct-route rows by
         # ``DynAlloc._phaseN_writeSummary``; left as ``CONST_NA`` for
         # connections / sales-inventory rows.

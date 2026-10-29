@@ -1100,6 +1100,25 @@ class AdditivePickupModelProcessor:
     # All tag ints, used to detect when a ±N window already covers every tag.
     _ALL_TAG_INTS = {0, 1, 2, 3}
 
+    # Reason codes for future flights that matched at NO ladder level (Step 9).
+    # Stored per run in qp_dw_rmalloc.additive_model_unmatched_flights as
+    # sectors.<SECTOR>.<REASON> = ['YYYY-MM-DD_FLTNO', ...]; counts per reason
+    # also go to additive_model_run_audit.sector_stats.<SECTOR>.unmatched_by_reason.
+    #
+    # Unmapped sector (no donor):
+    #   NO_HIST       - sector has NO flown history at all.
+    #   OWN_LT_MIN    - sector has flown history, but fewer than MIN_FLIGHT_MATCHES
+    #                   even at the widest level (whole sector, all taggings).
+    # Mapped (dependent) sector — own ladder failed, then the donor was tried:
+    #   DONOR_NO_HIST - donor has NO flown history (e.g. donor cache missing), so
+    #                   the fallback had nothing to offer. Check the donor's data.
+    #   DONOR_LT_MIN  - donor has flown history, but its ladder (DOW-Tagging ±Nh,
+    #                   Tagging) also fell short of MIN_FLIGHT_MATCHES.
+    UNMATCHED_NO_HIST = 'NO_HIST'
+    UNMATCHED_OWN_LT_MIN = 'OWN_LT_MIN'
+    UNMATCHED_DONOR_NO_HIST = 'DONOR_NO_HIST'
+    UNMATCHED_DONOR_LT_MIN = 'DONOR_LT_MIN'
+
     @staticmethod
     def _tag_window(tag, n):
         """Set of tag strings within +-n of `tag` on the numerical scale."""
@@ -1204,7 +1223,15 @@ class AdditivePickupModelProcessor:
 
         matches_dict = {}
         donor_won = {}   # {future_key: (donor_sector, dependent_sector)} — fallback wins
-        unmatched_keys = []   # future flights that failed EVERY ladder level
+        # Future flights that failed EVERY ladder level, grouped as
+        # {sector: {reason: ['YYYY-MM-DD_FLTNO', ...]}}. Sector prefix is dropped
+        # from the key (it is the outer dict key) to keep the audit compact.
+        unmatched_keys = {}
+        # Sectors with ANY flown history — computed once so the per-flight reason
+        # lookup is O(1). The last own-ladder level is "whole sector, all
+        # taggings", so a sector WITH history that still fails is short of
+        # min_matches in total (OWN_LT_MIN), not missing history.
+        flown_sectors = set(flown['Sector'].unique())
         skipped = 0
 
         for _, future_row in future_df.iterrows():
@@ -1234,7 +1261,18 @@ class AdditivePickupModelProcessor:
 
             if winning is None:
                 skipped += 1
-                unmatched_keys.append(future_key)
+                # Reason = the last pool that was tried and fell short (codes
+                # documented at UNMATCHED_* above).
+                if donor:
+                    reason = (self.UNMATCHED_DONOR_LT_MIN if donor in flown_sectors
+                              else self.UNMATCHED_DONOR_NO_HIST)
+                elif sector in flown_sectors:
+                    reason = self.UNMATCHED_OWN_LT_MIN
+                else:
+                    reason = self.UNMATCHED_NO_HIST
+                (unmatched_keys.setdefault(sector, {})
+                               .setdefault(reason, [])
+                               .append(future_key[len(sector) + 1:]))
                 continue
 
             # --- apply the winning group to BOTH flown and unflown pools ---
@@ -2323,21 +2361,26 @@ class AdditivePickupModelProcessor:
                     logger.error(f"  {sector} FAILED after {dt}s: {e}")
                     logger.error(traceback.format_exc())
                 finally:
-                    # Record future flights that matched at NO ladder level. Always
-                    # store the exact count; cap the stored keys so a data-starved
-                    # sector can't bloat the (single, all-sector) audit document.
-                    unmatched = list(getattr(self, '_unmatched_keys', []) or [])
-                    cap = getattr(self.constants_utils, 'AUDIT_UNMATCHED_KEYS_CAP', 500)
+                    # Future flights that matched at NO ladder level, for THIS
+                    # sector only: {reason: ['YYYY-MM-DD_FLTNO', ...]}. The run
+                    # audit keeps counts only; the flight lists go to the separate
+                    # additive_model_unmatched_flights doc (one per run).
+                    reasons = (getattr(self, '_unmatched_keys', None) or {}).get(sector) or {}
+                    by_reason = {r: len(keys) for r, keys in reasons.items()}
+                    n_unmatched = sum(by_reason.values())
                     stat = sector_stats.get(sector, {})
-                    stat['unmatched_count'] = len(unmatched)
-                    stat['unmatched_keys'] = (unmatched if (not cap or len(unmatched) <= cap)
-                                              else unmatched[:cap])
-                    if len(unmatched) > 0:
-                        logger.info(f"  {sector}: {len(unmatched)} future flight(s) "
-                                    f"unmatched at all levels"
-                                    + (f" (storing first {cap})" if cap and len(unmatched) > cap else ""))
+                    stat['unmatched_count'] = n_unmatched
+                    if by_reason:
+                        stat['unmatched_by_reason'] = by_reason
+                        logger.info(f"  {sector}: {n_unmatched} future flight(s) "
+                                    f"unmatched at all levels {by_reason}")
                     sector_stats[sector] = stat
                     self.mongo_helper.audit_upsert_sector(sector, sector_stats[sector])
+                    self.mongo_helper.audit_unmatched_flights(sector, reasons)
+                    # Clear after this sector's audit so a sector that fails before
+                    # Step 9 (e.g. dependent with no donor) can never inherit the
+                    # previous sector's unmatched flights.
+                    self._unmatched_keys = {}
                     self.cache.reset_batch()
 
             # Dependents are enqueued earlier, right after the donor's history is
@@ -2409,8 +2452,8 @@ class AdditivePickupModelProcessor:
         self._donor_won = {}
         # Per-batch: future flight keys that failed EVERY match ladder level
         # (set in Step 9, surfaced to the audit by run()). Reset so an early
-        # return (e.g. no history) leaves an empty list, not a stale one.
-        self._unmatched_keys = []
+        # return (e.g. no history) leaves an empty dict, not a stale one.
+        self._unmatched_keys = {}
 
         t_fetch_start = _time.perf_counter()
 
