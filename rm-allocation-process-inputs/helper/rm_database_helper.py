@@ -2007,10 +2007,13 @@ class RMDatabaseHelper:
             
             if channel == B2B_CHANNEL:
                 carr_exclusion = getattr(currParams, 'carrierExclusionB2B', getattr(currParams, 'carr_exclusion_b2b', None))
+                flightExclusion = getattr(currParams, 'flightExclusionB2B', None)
             else:
                 carr_exclusion = getattr(currParams, 'carrierExclusionB2C', getattr(currParams, 'carr_exclusion_b2c', None))
+                flightExclusion = getattr(currParams, 'flightExclusionB2C', None)
     
             carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
+            flight_exclusion_list = flightExclusion.split('/') if isinstance(flightExclusion, str) and flightExclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
             try:
@@ -2059,6 +2062,7 @@ class RMDatabaseHelper:
         "$gte": start_of_day,
         "$lte": end_of_day
     },
+    **({"outbound_flight": {"$nin": flight_exclusion_list}} if flight_exclusion_list else {}),
     "$expr": {
         "$and": [
             {

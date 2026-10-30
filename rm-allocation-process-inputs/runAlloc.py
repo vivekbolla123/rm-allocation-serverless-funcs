@@ -1775,6 +1775,11 @@ class DynAlloc:
 					ng_row.MarketFare_Selected = safe_round_fare(ng_summary.get('MarketFare_Selected', ng_summary.get('MarketFare_Min')))
 					ng_row.MarketFare_Min = safe_round_fare(ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn')))
 					ng_row.MarketFare_Max = safe_round_fare(ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn')))
+					ng_row.MarketFare_Selected_Carrier = ng_summary.get('MarketFare_Selected_Carrier')
+					ng_row.MarketFare_Selected_Flight = ng_summary.get('MarketFare_Selected_Flight')
+					ng_row.MarketFare_Candidates_Raw = ng_summary.get('MarketFare_Candidates_Raw')
+					ng_row.MarketFare_Window_Dropped = ng_summary.get('MarketFare_Window_Dropped')
+					ng_row.MarketFare_Outlier_Dropped = ng_summary.get('MarketFare_Outlier_Dropped')
 					ng_row.Grid_Name = ng_summary.get('Grid_Name')
 					ng_row.Rule_Applied = ng_summary.get('Rule_Applied')
 					ng_row.nextgen_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) else 'N'
@@ -1855,8 +1860,22 @@ class DynAlloc:
 							else:
 								oal_min_allin = oal_min_comp
 
-						ng_opt_df['oal_b2c_min'] = to_float(oal_min_comp, 0.0)
-						ng_opt_df['oal_b2c_min_All_in'] = to_float(oal_min_allin, 0.0)
+						# The engine (final_df) is the single source of truth for
+						# oal_b2c_min / oal_b2c_min_All_in: it already set both from the
+						# filtered competitor min (c_min_comp / c_min_allin), which honors
+						# carrier + flight exclusion. Only back-fill from the summary here
+						# when the engine left the column absent or zero, so the two
+						# outputs (inventory_optimization + summary) can never disagree.
+						def _needs_backfill(col):
+							if col not in ng_opt_df.columns:
+								return True
+							s = pd.to_numeric(ng_opt_df[col], errors='coerce')
+							return s.isna().all() or (s.fillna(0.0) == 0.0).all()
+
+						if _needs_backfill('oal_b2c_min'):
+							ng_opt_df['oal_b2c_min'] = to_float(oal_min_comp, 0.0)
+						if _needs_backfill('oal_b2c_min_All_in'):
+							ng_opt_df['oal_b2c_min_All_in'] = to_float(oal_min_allin, 0.0)
 						ng_opt_df['oal_b2c_max'] = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn', 0.0))
 						ng_opt_df['qp_b2c_min'] = min(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
 						ng_opt_df['qp_b2c_max'] = max(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
@@ -4543,12 +4562,21 @@ class DynAlloc:
 			"promo_first_rbd_NG": "promo_first_rbd_NG",
 			"PromoFirstRBD_NG": "promo_first_rbd_NG"
 		}
-		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
+		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings.
+		# NOTE: Do NOT drop the NextGen competition-response inputs here. The NextGen
+		# engine runs in the ALLOCATION pass (Phase 2) and reads these directly from
+		# the rehydrated MarketListRow:
+		#   - CarrExlusionB2C / CarrExlusionB2B : competitor carrier exclusion
+		#   - flightExclusionB2C / flightExclusionB2B : competitor flight-number exclusion
+		#   - B2CTolerance : grid tolerance floor in evaluate_grid_response
+		#   - Outbound_Stop : max stops for the connecting-competitor fetch
+		# Dropping them here previously caused the rehydrated row to fall back to the
+		# CONST_NA default, so carrier/flight exclusion silently did nothing in NextGen
+		# (e.g. an excluded "AI"/"SG" carrier still being selected as the market fare).
 		EXCLUDED_MARKET_LIST_FIELDS = {
-			"CarrExlusionB2C", "CarrExlusionB2B", "flightExclusionB2C", "flightExclusionB2B",
 			"fareAnchor", "fareOffset", "obSeats", "obFare", "DaySpan",
-			"AutoTimeRangeFlag", "openingFares", "OverBooking", "B2CTolerance",
-			"B2BTolerance", "seriesBlock", "autoBackstopFlag", "Outbound_Stop", "Marketfare_Upsell",
+			"AutoTimeRangeFlag", "openingFares", "OverBooking",
+			"B2BTolerance", "seriesBlock", "autoBackstopFlag", "Marketfare_Upsell",
 			"saleflag", "bookedPax", "total_series_seats", "NextFlight", "BookingsInHour", "BookingsCount",
 			"BookingToday", "WA_bookings", "WB_bookings", "WC_bookings", "WD_bookings", "WE_bookings",
 			"TimeWindowStart", "TimeWindowEnd",

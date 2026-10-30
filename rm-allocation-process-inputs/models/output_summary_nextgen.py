@@ -33,6 +33,14 @@ class OutputSummaryNextGen:
         self.MarketFare_Selected = CONST_NA
         self.MarketFare_Min = CONST_NA
         self.MarketFare_Max = CONST_NA
+        # Which competitor carrier / flight produced the selected (minimum) market fare,
+        # and how many candidate fares the time-window / outlier filters removed. These
+        # make SG-exclusion and "market fare too high" issues debuggable from the summary.
+        self.MarketFare_Selected_Carrier = CONST_NA
+        self.MarketFare_Selected_Flight = CONST_NA
+        self.MarketFare_Candidates_Raw = CONST_NA
+        self.MarketFare_Window_Dropped = CONST_NA
+        self.MarketFare_Outlier_Dropped = CONST_NA
         self.Grid_Name = CONST_NA
         self.Rule_Applied = CONST_NA
 
