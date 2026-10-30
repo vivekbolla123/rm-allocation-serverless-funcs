@@ -416,46 +416,92 @@ class NextGenOptimizationEngine:
         connection_fare_flag=0,
         direct_duration_mins=None,
         additional_connection_hours=DEFAULT_ADDITIONAL_CONNECTION_DURATION,
-        coverage_param=DEFAULT_COVERAGE_PARAMETER
+        coverage_param=DEFAULT_COVERAGE_PARAMETER,
+        flight_exclusion=None
     ):
         """
         Phase 2a: Dynamically filters competitor market fares for normal direct flights:
         1. Carrier exclusion.
-        2. Connecting vs Direct: If connection_fare_flag == 1, includes connecting competitor flights
+        2. Flight exclusion (specific competitor flight numbers configured in Market List).
+        3. Connecting vs Direct: If connection_fare_flag == 1, includes connecting competitor flights
            provided their total duration <= direct_duration + additional_connection_hours * 60 mins.
            If connection_fare_flag == 0, includes only direct flights.
-        3. Departure time window: [flight_std - time_range_hours, flight_std + time_range_hours].
-        4. Modified Z-score (MAD) outlier removal using coverage_param.
+        4. Departure time window: [flight_std - time_range_hours, flight_std + time_range_hours].
+        5. Modified Z-score (MAD) outlier removal using coverage_param.
+
+        Returns (min_fare, median_fare, meta) where meta is a dict describing the
+        selected (minimum) fare's carrier / flight and diagnostics about how many
+        candidate fares each filter step removed. meta is always a dict (never None)
+        so callers can read keys unconditionally. On no-data paths min/median are None.
         """
+        empty_meta = {
+            'selected_carrier': None,
+            'selected_flight': None,
+            'n_raw': 0,
+            'n_after_window': 0,
+            'n_after_outlier': 0,
+            'window_dropped': 0,
+            'outlier_dropped': 0,
+            'window_applied': False,
+        }
+
         if market_fares is None:
-            return None, None
+            return None, None, dict(empty_meta)
 
         if isinstance(market_fares, list):
             df_mkt = pd.DataFrame(market_fares)
         elif isinstance(market_fares, pd.DataFrame):
             df_mkt = market_fares.copy()
         else:
-            return None, None
+            return None, None, dict(empty_meta)
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
+
+        # Parse an exclusion value (carrier or flight) into a normalized token list.
+        # Market List stores these values slash-delimited (e.g. "SG/6E"), but older
+        # configs / callers may pass comma- or whitespace-delimited strings, so accept
+        # all of them. Returns upper-cased, stripped tokens with 'nan'/blank removed.
+        def _parse_exclusion_tokens(value):
+            if value is None:
+                return []
+            try:
+                if pd.isna(value):
+                    return []
+            except (TypeError, ValueError):
+                pass
+            if isinstance(value, (list, tuple, set)):
+                raw_tokens = [str(v) for v in value]
+            else:
+                raw_tokens = re.split(r'[/,;|\s]+', str(value))
+            tokens = []
+            for t in raw_tokens:
+                t_clean = t.strip().upper()
+                if t_clean and t_clean not in ('NAN', 'NA', 'NONE', CONST_NA.upper()):
+                    tokens.append(t_clean)
+            return tokens
 
         # 1. Exclude carriers
         carr_col = next((c for c in ['outbound_airline_code', 'AirlineCode', 'airline_code', 'Carrier', 'carrier'] if c in df_mkt.columns), None)
-        if carr_col and carrier_exclusion is not None and not pd.isna(carrier_exclusion):
-            if isinstance(carrier_exclusion, str):
-                carr_list = [c.strip().upper() for c in carrier_exclusion.split(',') if c.strip() and c.strip().lower() != 'nan']
-            elif isinstance(carrier_exclusion, (list, tuple, set)):
-                carr_list = [str(c).strip().upper() for c in carrier_exclusion if str(c).strip() and str(c).strip().lower() != 'nan']
-            else:
-                carr_list = []
+        if carr_col and carrier_exclusion is not None:
+            carr_list = _parse_exclusion_tokens(carrier_exclusion)
             if carr_list:
-                df_mkt = df_mkt[~df_mkt[carr_col].astype(str).str.upper().isin(carr_list)]
+                df_mkt = df_mkt[~df_mkt[carr_col].astype(str).str.strip().str.upper().isin(carr_list)]
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 2. Connecting vs Direct filtering for normal flight
+        # 2. Exclude specific competitor flight numbers (flightExclusionB2C / flightExclusionB2B)
+        flight_col = next((c for c in ['outbound_flight', 'flight_number', 'FlightNumber', 'flight', 'Flight'] if c in df_mkt.columns), None)
+        if flight_col and flight_exclusion is not None:
+            flight_list = _parse_exclusion_tokens(flight_exclusion)
+            if flight_list:
+                df_mkt = df_mkt[~df_mkt[flight_col].astype(str).str.strip().str.upper().isin(flight_list)]
+
+        if df_mkt.empty:
+            return None, None, dict(empty_meta)
+
+        # 3. Connecting vs Direct filtering for normal flight
         stops_col = next((c for c in ['outbound_stops', 'stops', 'Stops', 'outbound_stop'] if c in df_mkt.columns), None)
         dur_col = next((c for c in ['outbound_duration', 'duration', 'Duration', 'flight_duration'] if c in df_mkt.columns), None)
 
@@ -486,9 +532,17 @@ class NextGenOptimizationEngine:
                     df_mkt = df_mkt[(stops_series == 0) | ((stops_series > 0) & (dur_series <= max_allowed_duration))]
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 3. Departure time window filtering
+        # Record the fare column and candidate count BEFORE the time window, so we can
+        # report how many competitor fares the window / outlier steps remove. This is
+        # the key diagnostic for "market fare too high even though cheaper fares exist":
+        # a cheaper fare departing outside the time window is silently excluded here.
+        fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in df_mkt.columns), None)
+        n_before_window = int(len(df_mkt))
+
+        # 4. Departure time window filtering
+        window_applied = False
         time_col = next((c for c in ['outbound_departuretime', 'DepTime', 'departure_time', 'dep_time', 'STD'] if c in df_mkt.columns), None)
         if time_col and flight_std and time_range_hours:
             try:
@@ -507,24 +561,28 @@ class NextGenOptimizationEngine:
                     valid_time = mkt_mins.notna() & (abs(mkt_mins - target_mins) <= window_mins)
                     if valid_time.any():
                         df_mkt = df_mkt[valid_time]
+                        window_applied = True
             except Exception:
                 pass
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 4. Extract numeric fare
-        fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in df_mkt.columns), None)
+        # 5. Extract numeric fare (keep rows so we can report selected carrier/flight)
         if not fare_col:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        fares = pd.to_numeric(df_mkt[fare_col], errors='coerce').dropna()
-        fares = fares[fares > 0].tolist()
+        fare_series = pd.to_numeric(df_mkt[fare_col], errors='coerce')
+        df_fares = df_mkt.loc[fare_series.notna() & (fare_series > 0)].copy()
+        df_fares['_fare_num'] = pd.to_numeric(df_fares[fare_col], errors='coerce')
+        fares = df_fares['_fare_num'].tolist()
 
         if not fares:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 5. Outlier removal via Modified Z-score (MAD)
+        n_after_window = int(len(fares))
+
+        # 6. Outlier removal via Modified Z-score (MAD)
         cov_p = to_float(coverage_param, 3.0)
         med = float(np.median(fares))
         abs_dev = [abs(f - med) for f in fares]
@@ -532,11 +590,41 @@ class NextGenOptimizationEngine:
         if mad == 0:
             mad = 0.15 * med
 
-        valid_fares = [f for f in fares if (abs(f - med) / mad) < cov_p] if mad > 0 else fares
-        if not valid_fares:
-            valid_fares = fares
+        if mad > 0:
+            keep_mask = df_fares['_fare_num'].apply(lambda f: (abs(f - med) / mad) < cov_p)
+            df_valid = df_fares[keep_mask]
+        else:
+            df_valid = df_fares
+        if df_valid.empty:
+            df_valid = df_fares
 
-        return float(min(valid_fares)), float(np.median(valid_fares))
+        valid_fares = df_valid['_fare_num'].tolist()
+        n_after_outlier = int(len(valid_fares))
+
+        # Identify the row that produced the minimum (selected) competitor fare.
+        min_fare = float(min(valid_fares))
+        min_row = df_valid.loc[df_valid['_fare_num'].idxmin()] if not df_valid.empty else None
+
+        sel_carrier = None
+        sel_flight = None
+        if min_row is not None:
+            if carr_col and carr_col in df_valid.columns:
+                sel_carrier = str(min_row.get(carr_col)) if pd.notna(min_row.get(carr_col)) else None
+            if flight_col and flight_col in df_valid.columns:
+                sel_flight = str(min_row.get(flight_col)) if pd.notna(min_row.get(flight_col)) else None
+
+        meta = {
+            'selected_carrier': sel_carrier,
+            'selected_flight': sel_flight,
+            'n_raw': n_before_window,
+            'n_after_window': n_after_window,
+            'n_after_outlier': n_after_outlier,
+            'window_dropped': max(0, n_before_window - n_after_window) if window_applied else 0,
+            'outlier_dropped': max(0, n_after_window - n_after_outlier),
+            'window_applied': window_applied,
+        }
+
+        return min_fare, float(np.median(valid_fares)), meta
 
     @classmethod
     def evaluate_grid_response(
@@ -1266,6 +1354,7 @@ class NextGenOptimizationEngine:
         comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=0)) else 0
         time_range = to_float(_get_val(curr_params, 'time_range', default=time_range_const), to_float(time_range_const, DEFAULT_TIME_RANGE))
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
+        flight_excl = _get_val(curr_params, 'flightExclusionB2C', 'flight_exclusion_b2c', 'flight_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
         # In NextGen, use raw B2C backstop from Market List directly (do not use autobackstop / b2c_backstop_final)
         raw_bs = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
@@ -1347,14 +1436,15 @@ class NextGenOptimizationEngine:
                         recal_market_fares[fare_col] = pd.to_numeric(recal_market_fares[fare_col], errors='coerce').fillna(0.0) + recal_map['DEFAULT']
 
         # Convert market fares to AIRLINE COMPONENT before calculation
-        c_min_allin, c_med_allin = cls.filter_market_fares(
+        c_min_allin, c_med_allin, mkt_meta_allin = cls.filter_market_fares(
             recal_market_fares, flight_std,
             time_range_hours=time_range,
             carrier_exclusion=carr_excl,
             connection_fare_flag=conn_fare_flag,
             direct_duration_mins=dir_dur,
             additional_connection_hours=add_conn_dur,
-            coverage_param=cov_param
+            coverage_param=cov_param,
+            flight_exclusion=flight_excl
         )
 
         converted_market_fares = recal_market_fares
@@ -1373,14 +1463,15 @@ class NextGenOptimizationEngine:
                         lambda f: tax_helper.allin_to_airline_component(float(f), origin, destin, route=route) if pd.notna(f) else f
                     )
 
-        c_min_comp, c_med_comp = cls.filter_market_fares(
+        c_min_comp, c_med_comp, mkt_meta_comp = cls.filter_market_fares(
             converted_market_fares, flight_std,
             time_range_hours=time_range,
             carrier_exclusion=carr_excl,
             connection_fare_flag=conn_fare_flag,
             direct_duration_mins=dir_dur,
             additional_connection_hours=add_conn_dur,
-            coverage_param=cov_param
+            coverage_param=cov_param,
+            flight_exclusion=flight_excl
         )
 
         # Fallback if converted_market_fares was None or tax_helper not run
@@ -1981,6 +2072,15 @@ class NextGenOptimizationEngine:
             'MarketFare_Min_AllIn': int(round(to_float(c_min_allin, 0.0))) if c_min_allin is not None else None,
             'MarketFare_Max_AllIn': int(round(to_float(c_med_allin, 0.0))) if c_med_allin is not None else None,
             'MarketFare_Min_Comp': int(round(to_float(c_min_comp, 0.0))) if c_min_comp is not None else None,
+            # Which competitor carrier / flight produced the selected (minimum) market
+            # fare, plus how many fares the time-window / outlier steps removed. These
+            # make "why is the market fare so high / why did SG survive" debuggable
+            # directly from the run summary instead of requiring a code trace.
+            'MarketFare_Selected_Carrier': (mkt_meta_allin or {}).get('selected_carrier') or (mkt_meta_comp or {}).get('selected_carrier'),
+            'MarketFare_Selected_Flight': (mkt_meta_allin or {}).get('selected_flight') or (mkt_meta_comp or {}).get('selected_flight'),
+            'MarketFare_Candidates_Raw': (mkt_meta_allin or {}).get('n_raw'),
+            'MarketFare_Window_Dropped': (mkt_meta_allin or {}).get('window_dropped'),
+            'MarketFare_Outlier_Dropped': (mkt_meta_allin or {}).get('outlier_dropped'),
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,

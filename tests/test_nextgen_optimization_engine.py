@@ -92,18 +92,56 @@ class TestNextGenOptimizationEngine:
         ]
 
         # Case 1: connection_fare_flag == 0 (direct only, carrier AI excluded)
-        c_min, c_med = NextGenOptimizationEngine.filter_market_fares(
+        c_min, c_med, meta = NextGenOptimizationEngine.filter_market_fares(
             mkt_fares, flight_std='10:30', time_range_hours=2.0,
             carrier_exclusion='AI', connection_fare_flag=0, direct_duration_mins=120
         )
         assert c_min == 4500.0
+        # meta reports which carrier produced the selected min fare
+        assert meta['selected_carrier'] == '6E'
 
         # Case 2: connection_fare_flag == 1 (include connecting flight within 360 mins: 4200 is included, 3500 excluded)
-        c_min_conn, c_med_conn = NextGenOptimizationEngine.filter_market_fares(
+        c_min_conn, c_med_conn, meta_conn = NextGenOptimizationEngine.filter_market_fares(
             mkt_fares, flight_std='10:30', time_range_hours=2.0,
             carrier_exclusion='AI', connection_fare_flag=1, direct_duration_mins=120, additional_connection_hours=4.0
         )
         assert c_min_conn == 4200.0
+
+    def test_filter_market_fares_slash_delimited_carrier_exclusion(self):
+        """Carrier exclusion must honor slash-delimited Market List values (e.g. 'SG/AI')."""
+        mkt_fares = [
+            {'outbound_airline_code': 'SG', 'gross_fare': 3000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': 'AI', 'gross_fare': 3500, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': '6E', 'gross_fare': 4500, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+        ]
+        # Slash-delimited exclusion: both SG and AI must be dropped, leaving 6E @ 4500
+        c_min, _c_med, meta = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            carrier_exclusion='SG/AI', connection_fare_flag=0
+        )
+        assert c_min == 4500.0
+        assert meta['selected_carrier'] == '6E'
+
+        # Single-carrier exclusion still works
+        c_min2, _c_med2, _meta2 = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            carrier_exclusion='SG', connection_fare_flag=0
+        )
+        assert c_min2 == 3500.0  # SG dropped, AI @ 3500 is now the min
+
+    def test_filter_market_fares_flight_exclusion(self):
+        """Specific competitor flight numbers in flightExclusion must be dropped."""
+        mkt_fares = [
+            {'outbound_airline_code': 'SG', 'outbound_flight': 'SG-722', 'gross_fare': 3000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': 'SG', 'outbound_flight': 'SG-141', 'gross_fare': 4000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+        ]
+        # Exclude the cheaper SG-722 by flight number -> min becomes SG-141 @ 4000
+        c_min, _c_med, meta = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            connection_fare_flag=0, flight_exclusion='SG-722'
+        )
+        assert c_min == 4000.0
+        assert meta['selected_flight'] == 'SG-141'
 
     def test_demand_redistribution_and_p_eq(self, sample_flight_data):
         """Verify P_eq equivalent price mapping and piecewise interpolation when A < C."""
