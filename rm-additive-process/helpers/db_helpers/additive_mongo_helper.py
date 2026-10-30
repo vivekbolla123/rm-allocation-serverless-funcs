@@ -3,7 +3,8 @@ helpers/db_helpers/additive_mongo_helper.py
 =============================================================================
 All MongoDB reads/writes for the Additive Pickup Model.
 
-  self.db        -> qp_dw_rmalloc  (fares, rm_parameter_values, additive_model_run_audit)
+  self.db        -> qp_dw_rmalloc  (fares, rm_parameter_values, additive_model_run_audit,
+                                    additive_model_unmatched_flights)
   self.master_db -> qp_rm_master   (active_sectors, tax_mast_dom/intl,
                                     config_sector_demand_multiplier, config_quarter_wtp,
                                     config_station_master)
@@ -19,6 +20,7 @@ CSVs in TEST, and memoised on the helper for the invocation.
 import os
 import json
 import traceback
+from datetime import datetime
 
 import pandas as pd
 
@@ -531,7 +533,7 @@ class AdditiveMongoHelper:
                 {
                     '$set': {f'sector_stats.{sector}': stat, 'module': 'additive_pickup_model'},
                     '$setOnInsert': {
-                        'start_time': __import__('datetime').datetime.now(),
+                        'start_time': datetime.now(),
                         'status': 'IN_PROGRESS',
                         'snapshot_date': self.snapshot_date,
                         'sectors_expected': self.sectors_expected,
@@ -546,6 +548,30 @@ class AdditiveMongoHelper:
                              f"modified={result.modified_count}, upserted={result.upserted_id}")
         except Exception as e:
             self.logger.error(f"audit upsert failed for {sector}: {e}")
+
+    def audit_unmatched_flights(self, sector, reasons):
+        """Write this sector's unmatched future flights into the run's single doc
+        in qp_dw_rmalloc.additive_model_unmatched_flights:
+
+            {_id: ObjectId, run_id, created_at, sectors: {SECTOR: {REASON: ['YYYY-MM-DD_FLTNO']}}}
+
+        Upsert keyed on `run_id` (copied into the new doc from the filter).
+        Requires a UNIQUE index on run_id so parallel bins' first upserts can't
+        race into two docs for the same run.
+        `$set` on the sector's own path -> parallel bins never collide and an SQS
+        redelivery overwrites (never duplicates). Sectors with nothing unmatched
+        are skipped (no write, no empty run docs)."""
+        if not reasons or self.mode != 'PROD' or self.db is None or not self.run_id:
+            return
+        try:
+            self.db.additive_model_unmatched_flights.update_one(
+                {'run_id': self.run_id},
+                {'$set': {f'sectors.{sector}': reasons},
+                 '$setOnInsert': {'created_at': datetime.now()}},
+                upsert=True,
+            )
+        except Exception as e:
+            self.logger.error(f"unmatched-flights audit failed for {sector}: {e}")
 
     def audit_finalize(self):
         """Last bin to finish closes the run (idempotent, guarded on IN_PROGRESS).
@@ -568,7 +594,7 @@ class AdditiveMongoHelper:
             self.db.additive_model_run_audit.update_one(
                 {'run_id': self.run_id, 'status': 'IN_PROGRESS'},
                 {'$set': {
-                    'end_time': __import__('datetime').datetime.now(),
+                    'end_time': datetime.now(),
                     'status': 'SUCCESS' if n_fail == 0 else 'PARTIAL',
                     'sectors_failed_count': n_fail,
                 }},

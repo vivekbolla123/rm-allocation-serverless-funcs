@@ -42,6 +42,7 @@ import logging
 from Constants import (
     CONST_NA,
     DEFAULT_FIRST_RBD_SEATS,
+    NEXTGEN_OTHERRBD,
     DEFAULT_STANDARD_DEVIATION_FACTOR,
     DEFAULT_PROMO_FARE_FACTOR,
     DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
@@ -205,6 +206,76 @@ class NextGenOptimizationEngine:
             return 6
         else:
             return 7
+
+    @staticmethod
+    def _apply_stepup_cap(au_series, cap):
+        """Cap the consecutive step-up across an AU_Revised series.
+
+        ``au_series`` is ordered highest-fare (index 0) .. lowest-fare (last
+        index), i.e. the same order ``AU_Revised`` is stored on ``final_df``.
+        The opening bucket is the last strictly-positive entry. Walking from
+        the opening bucket toward higher fares, each subsequent open bucket may
+        exceed the previous (already-capped) bucket by at most ``cap``. Buckets
+        whose raw value is already within the step are left unchanged (never
+        forced up). Zeros (closed buckets) are skipped and are not part of the
+        step chain. The opening bucket itself is never inflated.
+        """
+        vals = [float(x) for x in au_series]
+        n = len(vals)
+        if n == 0 or cap is None or cap <= 0:
+            return vals
+        open_idx = None
+        for i in range(n - 1, -1, -1):
+            if vals[i] > 0.0:
+                open_idx = i
+                break
+        if open_idx is None:
+            return vals
+        prev_capped = vals[open_idx]
+        for i in range(open_idx - 1, -1, -1):
+            if vals[i] <= 0.0:
+                continue
+            allowed = prev_capped + cap
+            if vals[i] > allowed:
+                vals[i] = allowed
+            prev_capped = vals[i]
+        return vals
+
+    @classmethod
+    def _apply_filed_rbd_stepup_cap(cls, mapping, filed_levels, cap, capacity):
+        """Apply the same consecutive ``+cap`` step to the filed B2C RBD map.
+
+        ``filed_levels`` is ordered highest-fare -> lowest-fare (Step 5 sorts
+        it that way), so the chain walks in reverse: from the opening
+        (lowest-fare) RBD upward. Zero (closed) RBDs are skipped. The last open
+        RBD of the filed ladder (highest fare) is anchored to the flight
+        capacity so the top of the ladder always allocates full capacity.
+        """
+        if not mapping or not filed_levels or cap is None or cap <= 0:
+            return mapping
+        prev_capped = None
+        last_open_rbd = None
+        for fl in reversed(filed_levels):
+            rbd = fl.get('RBD')
+            if rbd not in mapping:
+                continue
+            au = to_float(mapping[rbd], 0.0)
+            if au <= 0.0:
+                continue
+            if prev_capped is None:
+                prev_capped = au
+                last_open_rbd = rbd
+                continue
+            allowed = prev_capped + cap
+            if au > allowed:
+                au = allowed
+                mapping[rbd] = au
+            prev_capped = au
+            last_open_rbd = rbd
+        # Last open RBD of the ladder (highest fare) allocates full capacity.
+        if capacity is not None and capacity > 0 and last_open_rbd is not None:
+            mapping[last_open_rbd] = float(capacity)
+        return mapping
 
     @classmethod
     def compute_initial_emsr_b(
@@ -1181,6 +1252,14 @@ class NextGenOptimizationEngine:
         cov_param_const = getattr(const_utils, 'COVERAGE_PARAMETER', getattr(const_utils, 'DEFAULT_COVERAGE_PARAMETER', DEFAULT_COVERAGE_PARAMETER))
         add_conn_dur_const = getattr(const_utils, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', DEFAULT_ADDITIONAL_CONNECTION_DURATION)
         pmin_thresh_const = getattr(const_utils, 'PMIN_THRESHOLD_FACTOR_NG', getattr(const_utils, 'pmin_threshold_factor_NG', DEFAULT_PMIN_THRESHOLD_FACTOR_NG))
+        # Maximum consecutive step-up (seats) allowed between successive
+        # AU_Revised allocations / filed B2C RBD allocations.
+        nextgen_otherrbd = to_float(
+            getattr(const_utils, 'NEXTGEN_OTHERRBD', NEXTGEN_OTHERRBD),
+            NEXTGEN_OTHERRBD,
+        )
+        if nextgen_otherrbd <= 0:
+            nextgen_otherrbd = float(NEXTGEN_OTHERRBD)
 
         raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
         buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
@@ -1609,6 +1688,15 @@ class NextGenOptimizationEngine:
             anchor_fare=anchor_fare
         )
 
+        # Consecutive step-up cap across the AU_Revised bucket series. Applying
+        # it once here (before Step 5 reads AU_Revised) keeps the inventory CSV
+        # and the filed B2C RBD mapping consistent with the same capped series.
+        _capped_au_revised = cls._apply_stepup_cap(
+            [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()],
+            nextgen_otherrbd,
+        )
+        final_df['AU_Revised'] = _capped_au_revised
+
         # Step 5: 51 Fare Levels (airline component) Mapping & Opening Fare
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
@@ -1643,11 +1731,18 @@ class NextGenOptimizationEngine:
                 ha_comp = float(hardanchor)
                 ha_allin = float(hardanchor)
 
-        # The effective floor on opening fare is max of backstop and hardanchor
-        eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
-        eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
+        # The effective floor on opening fare is the backstop only.
+        # Hardanchor is NOT a floor: it is a CAP (ceiling) that can only pull the
+        # opening fare DOWN, matching the legacy anchor logic
+        # (determine_rbd.py: min(fare, hardAnchor), applied only when
+        # hardAnchor < fare and PLF is below the threshold). Hardanchor was
+        # already PLF-gated at resolution time, so ha_comp/ha_allin being set
+        # here means the cap is active. It is applied after the opening fare is
+        # resolved, below.
+        eff_floor_comp = bs_comp
+        eff_floor_allin = bs_allin
 
-        # Effective target response fare considers floor (backstop / hardanchor)
+        # Effective target response fare considers the backstop floor
         eff_target_fare = eff_response_fare
         if eff_floor_comp is not None:
             eff_target_fare = max(eff_target_fare, eff_floor_comp)
@@ -1695,9 +1790,34 @@ class NextGenOptimizationEngine:
             else:
                 opening_rbd = str(final_df['FareBucket'].iloc[-1])
 
+        # Hardanchor CAP: if the resolved opening fare exceeds the hardanchor,
+        # pull the opening fare DOWN to the hardanchor level. Hardanchor never
+        # raises the opening fare. When filed levels exist, snap down to the
+        # highest filed level at or below the hardanchor (airline component);
+        # otherwise cap the raw opening fare value. Respect the backstop floor.
+        if ha_comp is not None and ha_comp > 0 and opening_fare > ha_comp + 1e-4:
+            if filed_levels:
+                ha_cand = [fl for fl in filed_levels if fl['fare'] <= ha_comp + 1e-4]
+                if eff_floor_comp is not None:
+                    ha_cand = [fl for fl in ha_cand if fl['fare'] >= eff_floor_comp - 1e-4]
+                if ha_cand:
+                    capped_filed = ha_cand[0]  # filed_levels is descending: highest <= hardanchor
+                    opening_fare = float(capped_filed['fare'])
+                    opening_rbd = capped_filed['RBD']
+                    open_filed = capped_filed
+            else:
+                opening_fare = float(ha_comp)
+                if eff_floor_comp is not None and opening_fare < eff_floor_comp:
+                    opening_fare = eff_floor_comp
+
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
         if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
             opening_fare_allin = eff_floor_allin
+        # Hardanchor cap on the all-in opening fare (never raise above hardanchor all-in)
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+            if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+                opening_fare_allin = eff_floor_allin
 
         # Allocate inventory for each of the 51 fare levels:
         # QP fare RBDs below opening fare or below floor get AU=0.
@@ -1737,6 +1857,18 @@ class NextGenOptimizationEngine:
                 low_rbd = filed_levels[i+1]['RBD']
                 if filed_levels[i]['fare'] >= opening_fare - 1e-4:
                     filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
+
+        # While mapping, follow the same consecutive +cap rule: the AU assigned
+        # to each successive filed B2C RBD may exceed the previous RBD's AU by
+        # at most NEXTGEN_OTHERRBD. The last RBD of the ladder allocates full
+        # capacity. This is applied on top of the existing Step-5 mapping (the
+        # opening RBD keeps its opening allocation; closed RBDs stay zero).
+        nextgen_otherrbd_bypass = bool(filed_levels) and nextgen_otherrbd > 0
+        if nextgen_otherrbd_bypass:
+            cls._apply_filed_rbd_stepup_cap(
+                filed_51_au_mapping, filed_levels, nextgen_otherrbd, cap_val
+            )
+        filed_51_au_mapping_out = filed_51_au_mapping
 
         opening_au = filed_51_au_mapping.get(opening_rbd, target_fc_au) if filed_levels else target_fc_au
         seats_on_opening = float(int(round(opening_au)))
@@ -1781,7 +1913,11 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
-                        if daily_lf is not None and 0.0 < daily_lf <= 1.0:
+                        # LF_Forecast_Revised is a 0-1 fraction; scale to 0-100%.
+                        # PLF can exceed 100% (capped ~110%), so a fraction may be
+                        # > 1.0 (e.g. 1.01 == 101%). Treat values <= 2.0 as
+                        # fractions; higher values are already percentages.
+                        if daily_lf is not None and 0.0 < daily_lf <= 2.0:
                             daily_lf = daily_lf * 100.0
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
@@ -1795,6 +1931,13 @@ class NextGenOptimizationEngine:
             opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route)
         else:
             opening_fare_allin = opening_fare
+        # Re-assert the hardanchor cap and backstop floor on the all-in opening fare.
+        # open_filed was already snapped down to the hardanchor level above, but
+        # guard here so the all-in value can never exceed the hardanchor.
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+        if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+            opening_fare_allin = eff_floor_allin
         # Strategy fare for viewing/display: show the fare from grid calculation (eff_response_fare), not ladder-mapped
         display_strategy_fare = eff_response_fare
         display_strategy_fare_allin = tax_helper.airline_component_to_allin(display_strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else display_strategy_fare
@@ -1852,7 +1995,9 @@ class NextGenOptimizationEngine:
             'oal_b2c_min_airline_comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
             'oal_b2c_min_allin': to_float(c_min_allin, None) if c_min_allin is not None else None,
             'opening_rbd': opening_rbd,
-            'filed_51_au_mapping': filed_51_au_mapping
+            'filed_51_au_mapping': filed_51_au_mapping_out,
+            'nextgen_otherrbd': float(nextgen_otherrbd),
+            'nextgen_otherrbd_bypass': nextgen_otherrbd_bypass
         }
 
         return final_df, summary

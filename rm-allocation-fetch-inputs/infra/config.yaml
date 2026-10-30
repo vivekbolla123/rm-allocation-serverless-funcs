@@ -1,0 +1,44 @@
+# Infrastructure-as-Code Configuration for rm-allocation-fetch-inputs
+# Modify this file to update sizing, environment variables, or triggers.
+# Run 'python infra.py --env <uat|prod> --plan' to preview changes.
+
+version: '1.0'
+service_name: rm-allocation-fetch-inputs
+description: Fetch inputs service for RM dynamic allocation
+defaults:
+  memory: 8192
+  timeout: 900
+  ephemeral_storage: 1600
+  dd_service: rm-fetch-inputs
+  dd_version: latest
+  log_retention_days: 30
+environments:
+  uat:
+    account_id: '891377165721'
+    region: ap-south-1
+    execution_role_arn: arn:aws:iam::891377165721:role/lambda-execution-role
+    lambda:
+      name: uat-rm-lambda-rm-allocation-fetch-inputs
+      image_uri: 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-ecr-rm-allocation-fetch-inputs:latest
+      memory: 8192
+      timeout: 900
+      ephemeral_storage: 1600
+      dd_service: rm-fetch-inputs
+      dd_version: latest
+      log_retention_days: 30
+      env_vars: {}
+    vpc:
+      vpc_id: vpc-01452dce7b5b446e1
+      subnets:
+      - subnet-053e2b8d03017c388
+      - subnet-0a05a901a38cd5672
+      security_groups:
+      - sg-087f8184f725ec3fe
+    secrets:
+      dd_api_key_ssm: /copilot/qp/uat/secrets/DD_API_KEY
+    triggers:
+      sqs:
+        queue_name: test-rm-allocation-queues-rm-allocation-fetch-inputs
+        batch_size: 1
+        enabled: true
+        max_concurrency: 10   
