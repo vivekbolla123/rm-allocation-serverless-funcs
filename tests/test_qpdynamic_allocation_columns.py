@@ -15,6 +15,8 @@ def test_nextgen_summary_exact_columns_and_order():
         'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
         'NG_FirstRBD', 'Predicted_Flown_Revised',
         'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+        'MarketFare_Selected_Carrier', 'MarketFare_Selected_Flight',
+        'MarketFare_Candidates_Raw', 'MarketFare_Window_Dropped', 'MarketFare_Outlier_Dropped',
         'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
         'buy_up_factor', 'RunId', 'Id',
         'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
@@ -23,7 +25,7 @@ def test_nextgen_summary_exact_columns_and_order():
         'ConversionRate', 'Currency'
     ]
     assert CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER == expected_nextgen_summary_cols
-    assert len(CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER) == 28
+    assert len(CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER) == 33
 
 
 def test_inventory_optimization_exact_columns_and_order():
