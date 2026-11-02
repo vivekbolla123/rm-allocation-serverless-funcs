@@ -66,9 +66,11 @@ class defaultMarketlist:
             """
             navFlights = pd.read_sql(NavitaireQuery, self.navconn)
             
-            # Filter for FlightNumber between 1000 and 6000 (exclusive)
+            # Filter for FlightNumber between 1000 and 7000 (exclusive).
+            # Upper bound raised to < 7000 to include the 6000-series flights,
+            # matching the SQL WHERE clause (IL.FlightNumber < 7000).
             navFlights['FlightNumberNum'] = pd.to_numeric(navFlights['FlightNumber'], errors='coerce')
-            navFlights = navFlights[(navFlights['FlightNumberNum'] > 1000) & (navFlights['FlightNumberNum'] < 6000)]
+            navFlights = navFlights[(navFlights['FlightNumberNum'] > 1000) & (navFlights['FlightNumberNum'] < 7000)]
             navFlights = navFlights.drop(columns=['FlightNumberNum'])
 
             if navFlights.empty or len(navFlights) == 0:
@@ -186,18 +188,37 @@ class defaultMarketlist:
             self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
 
     def _calculate_time_windows(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate TimeWindowStart and TimeWindowEnd dynamically based on DepartureTime."""
+        """Calculate TimeWindowStart and TimeWindowEnd as DepartureTime +/- N hours,
+        clamped to the SAME departure date: start floors at 00:01 and end caps at
+        23:59 (no roll-over into the previous/next day)."""
         if df.empty:
             df['TimeWindowStart'] = None
             df['TimeWindowEnd'] = None
             return df
-            
+
         ml_config = getattr(self.constants, 'DEFAULT_ML_CALC_CONFIG', {}) or {}
-        time_window_hours = int(ml_config.get('time_window_hours', 2))
-            
+        time_window_hours = int(ml_config.get('time_window_hours', 6))
+
+        # Work in minutes-since-midnight and clamp numerically to the same date:
+        #   start floor = 00:01 (1 min), end cap = 23:59 (1439 min).
+        FLOOR_MIN = 1
+        CEIL_MIN = 23 * 60 + 59
+        window_min = time_window_hours * 60
+
         dep_dt = pd.to_datetime(df['DepartureTime'], format='%H:%M', errors='coerce')
-        df['TimeWindowStart'] = (dep_dt - pd.Timedelta(hours=time_window_hours)).dt.strftime('%H:%M')
-        df['TimeWindowEnd'] = (dep_dt + pd.Timedelta(hours=time_window_hours)).dt.strftime('%H:%M')
+        dep_minutes = dep_dt.dt.hour * 60 + dep_dt.dt.minute  # NaN for invalid/NaT
+
+        start_min = (dep_minutes - window_min).clip(lower=FLOOR_MIN)
+        end_min = (dep_minutes + window_min).clip(upper=CEIL_MIN)
+
+        def to_hhmm(minutes):
+            if pd.isna(minutes):
+                return None
+            m = int(minutes)
+            return f"{m // 60:02d}:{m % 60:02d}"
+
+        df['TimeWindowStart'] = start_min.apply(to_hhmm)
+        df['TimeWindowEnd'] = end_min.apply(to_hhmm)
         return df
 
     def _calculate_dynamic_backstops(self, df: pd.DataFrame) -> pd.DataFrame:
