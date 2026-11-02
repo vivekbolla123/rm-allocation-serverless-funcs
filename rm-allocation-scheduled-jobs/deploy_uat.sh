@@ -1,8 +1,9 @@
 set -e
-Lmd_Func="uat-rm-allocation-serverless-funcs-rm-allocation-scheduled-jobs"
+Lmd_Func="uat-rm-lambda-rm-allocation-scheduled-jobs"
+ECR_Repo="uat-rm-ecr-rm-allocation-scheduled-jobs"
 ECR_Domain="891377165721.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="test-rm-allocation-scheduled-jobs-image"
-ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
+ECR_Image_URL="$ECR_Domain/$ECR_Repo:latest"
 AWS_Region="ap-south-1"
 SSM_ENV="uat"
 GIT_COMMIT_SHA=$(git rev-parse --short HEAD)

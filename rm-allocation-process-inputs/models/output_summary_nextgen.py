@@ -33,6 +33,14 @@ class OutputSummaryNextGen:
         self.MarketFare_Selected = CONST_NA
         self.MarketFare_Min = CONST_NA
         self.MarketFare_Max = CONST_NA
+        # Which competitor carrier / flight produced the selected (minimum) market fare,
+        # and how many candidate fares the time-window / outlier filters removed. These
+        # make SG-exclusion and "market fare too high" issues debuggable from the summary.
+        self.MarketFare_Selected_Carrier = CONST_NA
+        self.MarketFare_Selected_Flight = CONST_NA
+        self.MarketFare_Candidates_Raw = CONST_NA
+        self.MarketFare_Window_Dropped = CONST_NA
+        self.MarketFare_Outlier_Dropped = CONST_NA
         self.Grid_Name = CONST_NA
         self.Rule_Applied = CONST_NA
 
@@ -44,6 +52,12 @@ class OutputSummaryNextGen:
         self.analystName = CONST_NA
         self.status = CONST_NA
         self.allocationStatus = CONST_NA
+
+        # Currency conversion applied to the weighted-file-derived (INR) fares.
+        # ConversionRate is the INR -> home-currency multiplier (1.0 when no
+        # conversion); Currency is the resolved home-currency code ('INR' default).
+        self.ConversionRate = 1.0
+        self.Currency = 'INR'
 
     def to_dict(self):
         return {col: getattr(self, col, CONST_NA) for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER}

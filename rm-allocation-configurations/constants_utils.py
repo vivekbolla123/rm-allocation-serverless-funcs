@@ -41,6 +41,7 @@ class ConstantsUtils:
         self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
         self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
         self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
+        self.LAST_SOLD_FARE_THRESHOLD_NDO45 = LAST_SOLD_FARE_THRESHOLD_NDO45
         self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
@@ -85,6 +86,7 @@ class ConstantsUtils:
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
         self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
+        self.B2B_DIRECT_OUTPUT_SUMMARY_FLAG = json.loads(B2B_DIRECT_OUTPUT_SUMMARY_FLAG)
         self.AF_PLF_FORECAST_CAP = AF_PLF_FORECAST_CAP
         self.AF_PLF_GAIN_MAX_ZERO = AF_PLF_GAIN_MAX_ZERO
         self.AF_CONSTANT_BAND_2 = AF_CONSTANT_BAND_2
@@ -167,6 +169,7 @@ class ConstantsUtils:
         self.lsf_fallback_n_runs = LSF_FALLBACK_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
+        self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(AUTO_BACKSTOP_FORECAST_THRESHOLD)
 
         # Inventory Optimization (EMSR-b) Constants
         self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
@@ -185,6 +188,7 @@ class ConstantsUtils:
         self.DEFAULT_FIRST_RBD_SEATS = float(DEFAULT_FIRST_RBD_SEATS)
         self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
         self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+        self.NEXTGEN_OTHERRBD = float(NEXTGEN_OTHERRBD)
         self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(DEFAULT_STANDARD_DEVIATION_FACTOR)
         self.DEFAULT_PROMO_FARE_FACTOR = float(DEFAULT_PROMO_FARE_FACTOR)
         self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
@@ -302,6 +306,8 @@ class ConstantsUtils:
                 self.CUG_SEATS_PERCENT = float(parameter_value)
             elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
+            elif parameter_key == LAST_SOLD_FARE_THRESHOLD_NDO45_KEY:
+                self.LAST_SOLD_FARE_THRESHOLD_NDO45 = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:
                 self.LAST_N_AVG_FARE = int(parameter_value)
             elif parameter_key == MFMIN0_KEY:
@@ -394,6 +400,8 @@ class ConstantsUtils:
                 self.TOLERANCE_MAP = json.loads(parameter_value)
             elif parameter_key == B2B_FACTOR_MAP_KEY:
                 self.B2B_FACTOR_MAP = json.loads(parameter_value)
+            elif parameter_key == B2B_DIRECT_OUTPUT_SUMMARY_FLAG_KEY:
+                self.B2B_DIRECT_OUTPUT_SUMMARY_FLAG = json.loads(parameter_value)
             elif parameter_key == DEFAULT_D3_VALUE_KEY:
                 self.DEFAULT_D3_VALUE = int(parameter_value)
             elif parameter_key == D3_MIN_RULES_KEY:
@@ -554,6 +562,8 @@ class ConstantsUtils:
                 self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == AUTO_BACKSTOP_FORECAST_THRESHOLD_KEY:
+                self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
                 self.EMSR_SIGMA_FACTOR = float(parameter_value)
             elif parameter_key == PROMO_FARE_RATIO_KEY:
@@ -579,6 +589,8 @@ class ConstantsUtils:
                 self.DEFAULT_FIRST_RBD_SEATS = float(parameter_value)
                 self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
                 self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+            elif parameter_key in (NEXTGEN_OTHERRBD_KEY, 'NEXTGEN_OTHERRBD'):
+                self.NEXTGEN_OTHERRBD = float(parameter_value)
             elif parameter_key in (DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', 'additional_connection_duration_NG', 'additional_connection_duration'):
                 self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(parameter_value)
             elif parameter_key in (DEFAULT_TIME_RANGE_KEY, 'DEFAULT_TIME_RANGE', 'time_range', 'TimeRange'):
