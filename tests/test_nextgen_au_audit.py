@@ -91,7 +91,10 @@ class TestNextGenAuAudit:
         }
         mock_col.find_one.return_value = existing_doc
 
-        import lambda_function
+        from unittest.mock import patch
+        with patch('requests.Session.post') as mock_post:
+            mock_post.return_value.json.return_value = {"data": {"token": "fake_token"}}
+            import lambda_function
         lambda_function.navitaire_allocation_audit_col = mock_col
 
         start_time = datetime.now()
@@ -123,3 +126,76 @@ class TestNextGenAuAudit:
         assert u_args[0] == {"_id": "doc_existing_123"}
         assert u_args[1]["$set"]["run_id"] == "test_run_123"
         assert u_args[1]["$set"]["failures"] == 0
+
+    def test_insert_run_fltDate_audit_upsert(self):
+        """Verifies that insert_run_fltDate_audit uses update_one with upsert=True instead of insert_one."""
+        import lambda_function
+        from pymongo.errors import DuplicateKeyError
+
+        mock_flt_col = MagicMock()
+        lambda_function.run_flight_date_audit_col = mock_flt_col
+
+        run_id = "175c9802-a6ca-489c-9719-a02cad572d1e"
+        sector = "CCUIXZ"
+        flight_number = "1258"
+        flight_date = "2026-11-12"
+        result = json.dumps({"Y": 180})
+
+        lambda_function.insert_run_fltDate_audit(
+            run_id=run_id,
+            sector=sector,
+            flightNumber=flight_number,
+            flightDate=flight_date,
+            result=result
+        )
+
+        assert mock_flt_col.update_one.called
+        assert not mock_flt_col.insert_one.called
+        args, kwargs = mock_flt_col.update_one.call_args
+        filter_doc = args[0]
+        update_doc = args[1]
+
+        assert filter_doc == {
+            "runId": run_id,
+            "flightNumber": "1258",
+            "sector": sector,
+            "flightDate": flight_date
+        }
+        assert update_doc["$set"]["result"] == result
+        assert update_doc["$set"]["b2cstatus"] == "Done"
+        assert update_doc["$set"]["b2bstatus"] == "Done"
+        assert "createdAt" in update_doc["$setOnInsert"]
+        assert kwargs.get("upsert") is True
+
+    def test_insert_run_fltDate_audit_duplicate_key_error_fallback(self):
+        """Verifies that if upsert raises DuplicateKeyError (race condition), fallback update succeeds."""
+        import lambda_function
+        from pymongo.errors import DuplicateKeyError
+
+        mock_flt_col = MagicMock()
+        # First call raises DuplicateKeyError, second call succeeds
+        mock_flt_col.update_one.side_effect = [
+            DuplicateKeyError("E11000 duplicate key error"),
+            MagicMock()
+        ]
+        lambda_function.run_flight_date_audit_col = mock_flt_col
+
+        run_id = "175c9802-a6ca-489c-9719-a02cad572d1e"
+        sector = "CCUIXZ"
+        flight_number = "1258"
+        flight_date = "2026-11-12"
+        result = json.dumps({"Y": 180})
+
+        # Should not raise DuplicateKeyError
+        lambda_function.insert_run_fltDate_audit(
+            run_id=run_id,
+            sector=sector,
+            flightNumber=flight_number,
+            flightDate=flight_date,
+            result=result
+        )
+
+        assert mock_flt_col.update_one.call_count == 2
+        # Second call is without upsert
+        second_call_kwargs = mock_flt_col.update_one.call_args_list[1][1]
+        assert "upsert" not in second_call_kwargs or second_call_kwargs["upsert"] is False
