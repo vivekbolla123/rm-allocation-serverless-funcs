@@ -15,14 +15,17 @@ def test_nextgen_summary_exact_columns_and_order():
         'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
         'NG_FirstRBD', 'Predicted_Flown_Revised',
         'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+        'MarketFare_Selected_Carrier', 'MarketFare_Selected_Flight',
+        'MarketFare_Candidates_Raw', 'MarketFare_Window_Dropped', 'MarketFare_Outlier_Dropped',
         'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
         'buy_up_factor', 'RunId', 'Id',
         'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
         'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
-        'analystName', 'status', 'allocationStatus'
+        'analystName', 'status', 'allocationStatus',
+        'ConversionRate', 'Currency'
     ]
     assert CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER == expected_nextgen_summary_cols
-    assert len(CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER) == 26
+    assert len(CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER) == 33
 
 
 def test_inventory_optimization_exact_columns_and_order():
@@ -38,10 +41,11 @@ def test_inventory_optimization_exact_columns_and_order():
         'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
         'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
         'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-        'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
+        'SnapshotDate', 'Tagging', 'FareBucket', 'RunId',
+        'ConversionRate', 'Currency'
     ]
     assert CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER == expected_inv_opt_cols
-    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 45
+    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 47
 
 
 def test_output_summary_has_nextgen_columns():

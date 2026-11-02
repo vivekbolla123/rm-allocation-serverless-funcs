@@ -58,8 +58,12 @@ class MarketFareService:
                 except Exception:
                     pass
 
+                # WADD sectors have a forecast across the full 0-180 NDO range.
+                _fc_ndo_max = (int(getattr(self.constantsutils, 'WADD_FORECAST_NDO_MAX', 180))
+                               if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD'
+                               else int(getattr(self.constantsutils, 'FORECAST_ALLOC_NDO_MAX', 30)))
                 is_high_forecast = False
-                if ndo <= 30 and imp_forecast != CONST_NA and not pd.isna(imp_forecast):
+                if ndo <= _fc_ndo_max and imp_forecast != CONST_NA and not pd.isna(imp_forecast):
                     try:
                         is_high_forecast = float(imp_forecast) >= MARKET_FARE_FORECAST_THRESHOLD
                     except (ValueError, TypeError):
@@ -189,7 +193,26 @@ class MarketFareService:
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
             lowmktFile = mktFareRange['mktFile'].iloc[0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
-            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
+            isMarketFareAvailable = True
+
+            usesOutlierFilteredFares = (criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange) > 1)
+            hasOutlierFilteredFares = (not mktfareRange_minomaxo.empty) and ('gross_fare' in mktfareRange_minomaxo.columns)
+
+            # mktfareRange_minomaxo can be empty even when mktFareRange has >1 rows (e.g. a single
+            # primary-sector fare merged with mapped-station fares). Don't fall back to raw min/max;
+            # treat the market fare as not found.
+            if usesOutlierFilteredFares and not hasOutlierFilteredFares:
+                self.logger.info(f"Outlier-filtered market fares unavailable for criteria {criteria}; defaulting to Market Fare not found")
+                isMarketFareAvailable = False
+                lowFare = 0
+                hiFare = 0
+                lowAirlineCode = "Market Fare not found"
+                hiAirlineCode = "Market Fare not found"
+                lowFilghtNum = "Market Fare not found"
+                hiFilghtNum = "Market Fare not found"
+                lowmktFile = "Market Fare not found"
+                himktFile = "Market Fare not found"
+            elif usesOutlierFilteredFares:
                 lowFare = mktfareRange_minomaxo['gross_fare'].iloc[0]
                 hiFare = mktfareRange_minomaxo['gross_fare'].iloc[-1]
                 lowAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[0]
@@ -225,8 +248,6 @@ class MarketFareService:
                 lowAirlineCode = mktFareRange['outbound_airline_code'].loc[closest_idx]
                 lowFilghtNum = mktFareRange['outbound_flight'].loc[closest_idx]
                 lowmktFile = mktFareRange['mktFile'].loc[closest_idx]
-
-            isMarketFareAvailable = True
 
         # Apply market fare adjustments
         try:
@@ -301,6 +322,10 @@ class MarketFareService:
             max_fare = max(fare_list)
             min_fare_row = data[data["gross_fare"] == min_fare].iloc[[0]]
             max_fare_row = data[data["gross_fare"] == max_fare].iloc[[0]]
+        elif len(fare_l1)==1:
+            # Single fare: nothing to filter as outlier, so it is both the min and max fare
+            min_fare_row = data.iloc[[0]]
+            max_fare_row = data.iloc[[0]]
         elif len(fare_list)==0:
             return pd.DataFrame()
         else:

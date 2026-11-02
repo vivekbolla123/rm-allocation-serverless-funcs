@@ -243,6 +243,8 @@ class DetermineRBD:
         """
         hard_anchor_flag = False
         anchorFareBeforeTolerance = CONST_NA
+        # Reset per-flight forecast diagnostics so stale values don't leak across runs.
+        self.last_forecast_diagnostics = None
         origin = currParams.origin
         destin = currParams.destin
         forecastAllocFlag = int(getattr(currParams, 'forecastAllocFlag', 0))
@@ -346,7 +348,14 @@ class DetermineRBD:
 
                 # AUTOBACKSTOP LOGIC
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
-                if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
+                dplf_band_in_range = int(str(dplfBand).strip()) in (0, 1, 2)
+                forecast_below_threshold = False
+                try:
+                    if forecastAllocFlag == 1 and imp_forecast != CONST_NA and imp_forecast is not None:
+                        forecast_below_threshold = float(imp_forecast) < self.constantsutils.AUTO_BACKSTOP_FORECAST_THRESHOLD
+                except (ValueError, TypeError):
+                    forecast_below_threshold = False
+                if effective_autoBackstopFlag == "1" and (dplf_band_in_range or forecast_below_threshold):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
@@ -503,7 +512,30 @@ class DetermineRBD:
             early_return=False,
             early_return_tuple=None,
             T_prime=T_prime,
+            **self._forecast_diagnostics_fields(),
         )
+
+    def _forecast_diagnostics_fields(self):
+        """Map the most recent forecast-allocation diagnostics onto AnchorResult fields.
+
+        Returns an empty dict when forecast allocation was not exercised for this run,
+        leaving the AnchorResult defaults (CONST_NA) in place.
+        """
+        diag = getattr(self, "last_forecast_diagnostics", None)
+        if not isinstance(diag, dict):
+            return {}
+        return {
+            "forecastBand": diag.get("band", CONST_NA),
+            "forecastTrend": diag.get("trend", CONST_NA),
+            "forecastLSF": diag.get("lsf", CONST_NA),
+            "forecastLast3Fare": diag.get("last3_fare", CONST_NA),
+            "forecastLast7Fare": diag.get("last7_fare", CONST_NA),
+            "forecastMaxOwnFare": diag.get("max_own_fare", CONST_NA),
+            "forecastHighestFare": diag.get("highest_fare", CONST_NA),
+            "forecastMiddleFare": diag.get("middle_fare", CONST_NA),
+            "forecastLowestFare": diag.get("lowest_fare", CONST_NA),
+            "forecastFormula": diag.get("formula", CONST_NA),
+        }
 
     def applyAnchorToLadder(self, anchor_result, currParams, offset=0, strategy_criteria=None, state=None):
         """Phase K tail: ``getValueWithOffset`` / ``extremeFaresSkipping`` /
@@ -1047,7 +1079,8 @@ class DetermineRBD:
                         
                         target_band_id = str(imp_forecast_band)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
+                        if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -1307,10 +1340,19 @@ class DetermineRBD:
             BookingsInHour=BookingsInHour,
             history=history,
             band_override=band_param,
+            last3Fare=lastSoldFare,
+            last7Fare=last7AvgVal,
         )
         anchorFare = forecast_res["anchor_fare"]
         howDetermined = forecast_res["how_determined"]
         should_use_tolerance = True
+
+        # Expose the forecast-allocation diagnostics for analysis in the output
+        # summary (Highest/Middle/Lowest, LSF, Max Own, Interpolation inputs, etc.).
+        try:
+            self.last_forecast_diagnostics = forecast_res
+        except Exception:
+            pass
 
         if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:
             anchorFare, howDetermined, toleranceValue = self.final_fare_anchor_af_forecast(
@@ -1606,7 +1648,8 @@ class DetermineRBD:
                         
                         target_band_id = str(dplfBand)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        _fc_ndo_max = self.constantsutils.WADD_FORECAST_NDO_MAX if str(getattr(currParams, 'forecast_model', '') or '').strip().upper() == 'WADD' else self.constantsutils.FORECAST_ALLOC_NDO_MAX
+                        if is_forecast and ndoc_val <= _fc_ndo_max:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])

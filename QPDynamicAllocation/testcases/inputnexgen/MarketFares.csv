@@ -1,6 +1,6 @@
 channel,departure_date,destination_airport,gross_fare,outbound_airline_code,outbound_departuretime,outbound_flight,outbound_stop,site_name,source_airport,status,rec_key,created_at,site_identifier,currency,outbound_duration,scrape_file_name
 B2C,2026-10-02,DEL,5000,6E,02:30,6E-2111,0,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,2,test
 B2C,2026-10-03,DEL,8000,6E,02:30,6E-2111,0,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,2,test
-B2C,2026-10-03,DEL,7000,AI,02:30,AI-2111,1,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,3.5,test
+B2C,2026-10-03,DEL,7000,AI,02:30,AI-2111,0,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,3.5,test
 B2C,2026-10-03,DEL,6000,SG,02:30,SG-2111,1,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,10,test
 B2C,2026-10-04,DEL,4500,IX,02:30,IX-2111,0,EaseMyTripDomestic,BOM,Available,EaseMyTripDomestic6E-2111BOMDEL2023-08-01,09/17/2026 11:12,EaseMyTripDomestic_C9,INR,2,test

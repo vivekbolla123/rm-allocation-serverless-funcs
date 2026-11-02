@@ -52,13 +52,16 @@ WINDOW_MINUTES = 25
 
 S_CLASS_PLF_THRESHOLD = 75
 LAST_SOLD_FARE_THRESHOLD = 72
+LAST_SOLD_FARE_THRESHOLD_NDO45 = 96
 LAST_N_AVG_FARE = 7
 
 ADHOC_BATCH_SIZE = 4000
 CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
 FORECAST_ALLOC_NDO_MAX = 30
+WADD_FORECAST_NDO_MAX = 180
 DILUTION_PLF_THRESHOLD = 99
+AUTO_BACKSTOP_FORECAST_THRESHOLD = 85
 
 # Portfolio sibling enrichment: max unique departure dates processed per window
 PORTFOLIO_SIBLING_BATCH_SIZE = 7
@@ -90,6 +93,7 @@ DIRECT_FLIGHT_UPSELL_AMOUNT = 200
 
 RBD_VALUES = "ZJ,ZI,ZH,ZG,ZF,ZE,ZD,ZC,ZB,ZA,Z9,Z8,Z7,Z6,Z5,Z4,Z3,Z2,Z1,Z0,V9,V8,V7,V6,V5,V4,V3,V2,V1,V0,U9,U8,U7,U6,U5,U4,U3,U2,U1,U0,T9,T8,T7,T6,T5,T4,T3,T2,T1,T0,R9,R8,R7,R6,R5,R4,R3,R2,R1,R0,Q9,Q8,Q7,Q6,Q5,Q4,Q3,Q2,Q1,Q0,QA,O0,N0,M0,K0,J0,I0,H0,F0,E0,D0,C0,B0,Y0"
 B2C_RBD_VALUES = "V4,V3,V2,V1,V0,U4,U3,U2,U1,U0,T4,T3,T2,T1,T0,R4,R3,R2,R1,R0,Q4,Q3,Q2,Q1,Q0,P4,P3,P2,P1,P0,O4,O3,O2,O1,O,N4,N3,N2,N1,N,M,K,J,I,H,F,E,D,C,B,Y"
+QP_B2C_RBD_VALUES = B2C_RBD_VALUES
 B2B_RBD_VALUES = "Z9,Z8,Z7,Z6,Z5,Z4,Z3,Z2,Z1,Z0"
 GROUP_RBD_VALUES = "GJ,GI,GH,GG,GF,GE,GD,GC,GB,GA"
 DISTRESS_RBD_VALUES = "P,L"
@@ -171,6 +175,7 @@ GROUP_QUOTATION_KEY = 'GROUP_QUOTATION'
 TBF_RBD_KEY = 'TBF_RBD'
 W_RBD_KEY = 'W_RBD'
 LAST_SOLD_FARE_THRESHOLD_KEY = 'LAST_SOLD_FARE_THRESHOLD'
+LAST_SOLD_FARE_THRESHOLD_NDO45_KEY = 'LAST_SOLD_FARE_THRESHOLD_NDO45'
 LAST_N_AVG_FARE_KEY = 'LAST_N_AVG_FARE'
 GROUP_DIFF_FARE_KEY = 'GROUP_DIFF_FARE'
 TBF_DIFF_FARE_KEY = 'TBF_DIFF_FARE'
@@ -198,6 +203,7 @@ IMP_FORECAST_DEDUCTION_LB_KEY = 'IMP_FORECAST_DEDUCTION_LB'
 IMP_FORECAST_DEDUCTION_KEY = 'IMP_FORECAST_DEDUCTION'
 TOLERANCE_MAP_KEY = 'TOLERANCE_MAP'
 B2B_FACTOR_MAP_KEY = 'B2B_FACTOR_MAP'
+B2B_DIRECT_OUTPUT_SUMMARY_FLAG_KEY = 'B2B_DIRECT_OUTPUT_SUMMARY_FLAG'
 AF_PLF_FORECAST_CAP_KEY = 'AF_PLF_FORECAST_CAP'
 AF_PLF_GAIN_MAX_ZERO_KEY = 'AF_PLF_GAIN_MAX_ZERO'
 AF_CONSTANT_BAND_2_KEY = 'AF_CONSTANT_BAND_2'
@@ -216,6 +222,7 @@ DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 FORECAST_ALLOC_NDO_MAX_KEY = 'FORECAST_ALLOC_NDO_MAX'
+WADD_FORECAST_NDO_MAX_KEY = 'WADD_FORECAST_NDO_MAX'
 
 THRESHOLD_TIME_KEY = "THRESHOLD_TIME"
 PF_UPSELL_VALUE_KEY = "PF_UPSELL_VALUE"
@@ -233,6 +240,7 @@ NAVODS_ALERT_MAX_NDO_KEY = 'NAVODS_ALERT_MAX_NDO'
 TBF_ORG_CODE_KEY = "TBF_ORG_CODE"
 TBF_OPEN_SEATS_KEY = "TBF_OPEN_SEATS"
 DILUTION_PLF_THRESHOLD_KEY = "DILUTION_PLF_THRESHOLD"
+AUTO_BACKSTOP_FORECAST_THRESHOLD_KEY = "AUTO_BACKSTOP_FORECAST_THRESHOLD"
 
 DEFAULT_MARKET_LIST_KEY = "DEFAULT_MARKET_LIST"
 DEFAULT_MARKET_LIST_DAYS_KEY = "DEFAULT_MARKET_LIST_DAYS"
@@ -253,6 +261,7 @@ MARKET_FLAG_INTERNATIONAL_KEY = "MARKET_FLAG_INTERNATIONAL"
 RBD_VALUES_KEY = "RBD_VALUES"
 B2B_RBD_VALUES_KEY = "B2B_RBD_VALUES"
 B2C_RBD_VALUES_KEY = "B2C_RBD_VALUES"
+QP_B2C_RBD_VALUES_KEY = "QP_B2C_RBD_VALUES"
 GROUP_RBD_VALUES_KEY = "GROUP_RBD_VALUES"
 DISTRESS_RBD_VALUES_KEY = "DISTRESS_RBD_VALUES"
 B2B_THRESHOLD_KEY = "B2B_THRESHOLD"
@@ -315,6 +324,7 @@ OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
 BUY_UP_FACTOR_KEY = 'BUY_UP_FACTOR'
 DEFAULT_FIRST_RBD_SEATS_KEY = 'DEFAULT_FIRST_RBD_SEATS'
 FIRST_RBD_ALLOC_KEY = 'FirstRBDAlloc'
+NEXTGEN_OTHERRBD_KEY = 'NEXTGEN_OTHERRBD'
 DEFAULT_STANDARD_DEVIATION_FACTOR_KEY = 'DEFAULT_STANDARD_DEVIATION_FACTOR'
 DEFAULT_PROMO_FARE_FACTOR_KEY = 'DEFAULT_PROMO_FARE_FACTOR'
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY = 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU'
@@ -429,6 +439,9 @@ CONST_SUMMARY_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "ge
 
 # NextGen AU Optimization & Competition Response Parameters
 DEFAULT_FIRST_RBD_SEATS = 20
+# Maximum consecutive step-up (seats) allowed between successive AU_Revised
+# allocations in the NextGen optimisation ladder / filed B2C RBD mapping.
+NEXTGEN_OTHERRBD = 20
 DEFAULT_STANDARD_DEVIATION_FACTOR = 0.25
 DEFAULT_PROMO_FARE_FACTOR = 0.80
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
@@ -456,6 +469,8 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
     'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor',
+    'forecastBand', 'forecastTrend', 'forecastLSF', 'forecastLast3Fare', 'forecastLast7Fare',
+    'forecastMaxOwnFare', 'forecastHighestFare', 'forecastMiddleFare', 'forecastLowestFare', 'forecastFormula',
     'NG_LF_Forecast', 'NG_AF_Forecast', 'NG_Historical_current_booked',
     'NG_Opening_fare', 'NG_FirstRBD', 'NG_Strategy_fare', 'NG_Anchor_fare'
 ]
@@ -464,11 +479,14 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
     'NG_FirstRBD', 'Predicted_Flown_Revised',
     'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'MarketFare_Selected_Carrier', 'MarketFare_Selected_Flight',
+    'MarketFare_Candidates_Raw', 'MarketFare_Window_Dropped', 'MarketFare_Outlier_Dropped',
     'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
     'buy_up_factor', 'RunId', 'Id',
     'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
     'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
-    'analystName', 'status', 'allocationStatus'
+    'analystName', 'status', 'allocationStatus',
+    'ConversionRate', 'Currency'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
@@ -483,7 +501,8 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
     'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
+    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId',
+    'ConversionRate', 'Currency'
 ]
 
 
@@ -618,6 +637,10 @@ IMP_FORECAST_DEDUCTION_ML = 0
 IMP_FORECAST_DEDUCTION = 0
 TOLERANCE_MAP = '{"4": -1, "3": 10, "2": 15, "1": 25, "0": 25}'
 B2B_FACTOR_MAP = '{"4": 0, "3": 0, "2": 0.5, "1": 1, "0": 1}'
+# Controls whether B2B output-summary records are inserted for direct flights,
+# keyed by region. When the region's value is false, B2B summary rows for
+# direct flights are skipped/blocked.
+B2B_DIRECT_OUTPUT_SUMMARY_FLAG = '{"Domestic": true, "International": true}'
 
 AF_PLF_FORECAST_CAP = 105
 AF_PLF_GAIN_MAX_ZERO = 60

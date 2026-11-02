@@ -92,18 +92,56 @@ class TestNextGenOptimizationEngine:
         ]
 
         # Case 1: connection_fare_flag == 0 (direct only, carrier AI excluded)
-        c_min, c_med = NextGenOptimizationEngine.filter_market_fares(
+        c_min, c_med, meta = NextGenOptimizationEngine.filter_market_fares(
             mkt_fares, flight_std='10:30', time_range_hours=2.0,
             carrier_exclusion='AI', connection_fare_flag=0, direct_duration_mins=120
         )
         assert c_min == 4500.0
+        # meta reports which carrier produced the selected min fare
+        assert meta['selected_carrier'] == '6E'
 
         # Case 2: connection_fare_flag == 1 (include connecting flight within 360 mins: 4200 is included, 3500 excluded)
-        c_min_conn, c_med_conn = NextGenOptimizationEngine.filter_market_fares(
+        c_min_conn, c_med_conn, meta_conn = NextGenOptimizationEngine.filter_market_fares(
             mkt_fares, flight_std='10:30', time_range_hours=2.0,
             carrier_exclusion='AI', connection_fare_flag=1, direct_duration_mins=120, additional_connection_hours=4.0
         )
         assert c_min_conn == 4200.0
+
+    def test_filter_market_fares_slash_delimited_carrier_exclusion(self):
+        """Carrier exclusion must honor slash-delimited Market List values (e.g. 'SG/AI')."""
+        mkt_fares = [
+            {'outbound_airline_code': 'SG', 'gross_fare': 3000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': 'AI', 'gross_fare': 3500, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': '6E', 'gross_fare': 4500, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+        ]
+        # Slash-delimited exclusion: both SG and AI must be dropped, leaving 6E @ 4500
+        c_min, _c_med, meta = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            carrier_exclusion='SG/AI', connection_fare_flag=0
+        )
+        assert c_min == 4500.0
+        assert meta['selected_carrier'] == '6E'
+
+        # Single-carrier exclusion still works
+        c_min2, _c_med2, _meta2 = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            carrier_exclusion='SG', connection_fare_flag=0
+        )
+        assert c_min2 == 3500.0  # SG dropped, AI @ 3500 is now the min
+
+    def test_filter_market_fares_flight_exclusion(self):
+        """Specific competitor flight numbers in flightExclusion must be dropped."""
+        mkt_fares = [
+            {'outbound_airline_code': 'SG', 'outbound_flight': 'SG-722', 'gross_fare': 3000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+            {'outbound_airline_code': 'SG', 'outbound_flight': 'SG-141', 'gross_fare': 4000, 'outbound_stop': 0, 'outbound_departuretime': '10:30'},
+        ]
+        # Exclude the cheaper SG-722 by flight number -> min becomes SG-141 @ 4000
+        c_min, _c_med, meta = NextGenOptimizationEngine.filter_market_fares(
+            mkt_fares, flight_std='10:30', time_range_hours=2.0,
+            connection_fare_flag=0, flight_exclusion='SG-722'
+        )
+        assert c_min == 4000.0
+        assert meta['selected_flight'] == 'SG-141'
 
     def test_demand_redistribution_and_p_eq(self, sample_flight_data):
         """Verify P_eq equivalent price mapping and piecewise interpolation when A < C."""
@@ -1154,6 +1192,78 @@ class TestNextGenOptimizationEngine:
         # 3. Backstop: fare 3000 is < 3500 so AU_Revised must be 0.0
         r_3000 = redistrib_df.loc[redistrib_df['fare'] == 3000.0, 'AU_Revised'].iloc[0]
         assert r_3000 == 0.0
+
+    def test_opening_rbd_au_when_backstop_elevates_opening_fare(self):
+        """
+        Verify that when a backstop elevates the opening fare (e.g. backstop = 7500 while
+        competitor response fare is lower, e.g. 5000), the opening RBD nearest to 7500 among
+        the 50 filed B2C levels receives positive AU (matching the opening forecast bucket),
+        and is NOT assigned AU = 0.
+        """
+        ladder = pd.DataFrame([
+            {'fare': 15000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'fare': 12000.0, 'mu': 3.0, 'sigma': 0.75},
+            {'fare': 10000.0, 'mu': 4.0, 'sigma': 1.0},
+            {'fare': 8500.0, 'mu': 5.0, 'sigma': 1.25},
+            {'fare': 7200.0, 'mu': 6.0, 'sigma': 1.5},
+            {'fare': 6000.0, 'mu': 7.0, 'sigma': 1.75},
+            {'fare': 4500.0, 'mu': 8.0, 'sigma': 2.0},
+            {'fare': 3500.0, 'mu': 9.0, 'sigma': 2.25},
+        ])
+        capacity = 189
+        cb = 50
+
+        # 50 filed levels: R0=15000 down to R49=2750 in steps of 250
+        # R30 has fare = 15000 - 30 * 250 = 7500.0
+        filed_ladder = pd.DataFrame([
+            {'RBD': f'R{i}', 'fare': 15000.0 - i * 250.0, 'TOTAL': 15000.0 - i * 250.0}
+            for i in range(50)
+        ])
+
+        # Competitor fare below backstop 7500
+        mkt_fares = [{'AirlineCode': '6E', 'Fare': 5000.0, 'outbound_stops': 0, 'outbound_duration': 120, 'DepTime': '10:30'}]
+
+        class MockDbHelper:
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                return {'response_rule': 'C', 'criteria': 'Min'}
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder, capacity, cb, 200000.0,
+            market_fares=mkt_fares,
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'b2c_backstop': 7500.0, 'first_rbd_NG': 20},
+            db_helper=MockDbHelper(),
+            filed_51_ladder_df=filed_ladder
+        )
+
+        # 1. Opening fare is 7500 (enforced by backstop)
+        assert summary['opening_fare_airline_comp'] == 7500.0
+        assert summary['opening_rbd'] == 'R30'
+
+        # 2. In 19 forecast buckets (final_df), bucket 8500 has FirstRBD seats (cb + 20 = 70)
+        # and buckets < 7500 have AU_Revised = 0.0
+        au_8500 = final_df.loc[final_df['fare'] == 8500.0, 'AU_Revised'].iloc[0]
+        assert au_8500 >= 70.0
+        assert final_df.loc[final_df['fare'] < 7500.0, 'AU_Revised'].sum() == 0.0
+
+        # 3. In the 50 filed B2C RBD mapping:
+        mapping = summary['filed_51_au_mapping']
+        # The opening RBD R30 (nearest to 7500) must receive positive AU (>= 70), NOT 0.0!
+        assert mapping['R30'] >= 70.0, f"Opening RBD R30 AU must be >= 70, got {mapping['R30']}"
+
+        # Filed levels above opening fare (R29 at 7750, R28 at 8000, R26 at 8500) must be >= R30 AU
+        assert mapping['R29'] >= mapping['R30']
+        assert mapping['R28'] >= mapping['R30']
+        assert mapping['R26'] >= mapping['R30']
+
+        # Filed levels below opening fare 7500 (R31 at 7250, R32 at 7000...) must have AU = 0.0
+        assert mapping['R31'] == 0.0
+        assert mapping['R32'] == 0.0
+        assert mapping['R49'] == 0.0
+
+        # summary['NG_FirstRBD'] and seats on opening must match
+        assert summary['NG_FirstRBD'] >= 70.0
+
 
 
 

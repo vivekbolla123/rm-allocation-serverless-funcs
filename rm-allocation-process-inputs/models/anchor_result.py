@@ -65,6 +65,18 @@ class AnchorResult:
     TimeRange: str = ""
     StrategyReference: str = ""
 
+    # Forecast Allocation diagnostics (Change Notes – 3) — surfaced for analysis.
+    forecastBand: Any = CONST_NA
+    forecastTrend: Any = CONST_NA
+    forecastLSF: Any = CONST_NA
+    forecastLast3Fare: Any = CONST_NA
+    forecastLast7Fare: Any = CONST_NA
+    forecastMaxOwnFare: Any = CONST_NA
+    forecastHighestFare: Any = CONST_NA
+    forecastMiddleFare: Any = CONST_NA
+    forecastLowestFare: Any = CONST_NA
+    forecastFormula: Any = CONST_NA
+
     # Internal control flow
     early_return: bool = False
     early_return_tuple: Optional[Tuple[Any, ...]] = None

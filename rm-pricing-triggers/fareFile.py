@@ -316,13 +316,23 @@ class FareFiling:
             if destination in self.constants.PRICING_RCS_SECTORS:
                 rcs = 0
             duf = float(self.constants.PRICING_DUF_SECTORS[destination]) if destination in self.constants.PRICING_DUF_SECTORS else 0
-            if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                gst_rate = 0
+
+            # GST exemption drops only the main GST component; YQ GST keeps the real
+            # rate (matches ladderGen).
+            gst_exempt = origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS
 
             if ftype == 'base':
-                return base_fare + asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf + yq + (yq * gst_rate)
+                gst = 0 if gst_exempt else gst_rate * (base_fare + rcs + cute)
+                return base_fare + asf + psf + udf_df + rcs + cute + gst + duf + yq + (yq * gst_rate)
             else:
-                return (base_fare - ((gst_rate * (rcs + cute)) + rcs + cute + duf + asf + psf + udf_df + yq + (yq * gst_rate))) / (1 + gst_rate)
+                # DUF is removed from the gross fare up front (not divided), matching ladderGen.
+                adjusted_gross_fare = base_fare - duf
+                if gst_exempt:
+                    other_taxes = asf + psf + udf_df + rcs + cute + yq + (yq * gst_rate)
+                    return adjusted_gross_fare - other_taxes
+                gst_on_taxes = gst_rate * (rcs + cute)
+                other_taxes = asf + psf + udf_df + cute + yq + (yq * gst_rate)
+                return (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
         except Exception:
             return 0
 
@@ -342,6 +352,7 @@ class FareFiling:
             psf_adf = float(tax_row.get('PSF_ADF', 0)) if pd.notna(tax_row.get('PSF_ADF')) else 0
             udf = float(tax_row.get('UDF', 0)) if pd.notna(tax_row.get('UDF')) else 0
             psc_pz = float(tax_row.get('PSC_PZ', 0)) if pd.notna(tax_row.get('PSC_PZ')) else 0
+            rcs_cute = float(tax_row.get('RCS_CUTE', 0)) if pd.notna(tax_row.get('RCS_CUTE')) else 0
             rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
             tax1 = float(tax_row.get('Tax1', 0)) if pd.notna(tax_row.get('Tax1')) else 0
             tax2 = float(tax_row.get('Tax2', 0)) if pd.notna(tax_row.get('Tax2')) else 0
@@ -351,13 +362,17 @@ class FareFiling:
             yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
             yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
 
+            # Apply RCS-sector override (matches ladderGen).
+            if destination in self.constants.PRICING_RCS_SECTORS:
+                rcs = 0
+
             if ftype == 'base':
-                gst = gst_rate * (gross_fare + rcs + cute)
-                return gross_fare + asf + psf_adf + udf + psc_pz + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
+                gst = gst_rate * (gross_fare + rcs + cute + rcs_cute)
+                return gross_fare + asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
             else:
-                gst_on_taxes = gst_rate * (rcs + cute)
+                gst_on_taxes = gst_rate * (rcs + cute + rcs_cute)
                 other_taxes = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
-                return (gross_fare - (rcs + cute + gst_on_taxes + other_taxes)) / (1 + gst_rate)
+                return (gross_fare - rcs - cute - rcs_cute - gst_on_taxes - other_taxes) / (1 + gst_rate)
         except Exception as e:
             self.logger.error(f"Error calculating international fare: {str(e)}")
 

@@ -841,7 +841,7 @@ def left_join_with_destination_mapping(left_df, right_df):
         right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
     ).drop(columns=['Destination'], errors='ignore')
 
-def left_join_forecast(mkt_list, forecast_df, model_map):
+def left_join_forecast(mkt_list, forecast_df, model_map, wadd_df=None):
     mkt = mkt_list.copy()
     fc = forecast_df.copy()
     model = model_map.copy()
@@ -868,14 +868,54 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
         suffixes=('', '_drop')
     )
 
-    # Preserve original LB forecastPLF before ML substitution
+    # Merge the WADD (additive-model) per-flight forecast so WADD sectors
+    # can source forecastPLF from the additive model.
+    if wadd_df is not None and not wadd_df.empty:
+        wadd = wadd_df.copy()
+        wadd['DepartureDate'] = pd.to_datetime(wadd['DepartureDate']).dt.normalize()
+        wadd['FlightNumber'] = wadd['FlightNumber'].astype('int64')
+        mkt = mkt.merge(
+            wadd[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF_wadd']],
+            how='left',
+            left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destin'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        )
+    else:
+        mkt['forecastPLF_wadd'] = np.nan
+
+    # Preserve original LB forecastPLF before ML / WADD substitution
     mkt['forecastPLF_lb'] = mkt['forecastPLF'].copy()
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
 
-    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml'], inplace=True, errors='ignore')
+    # WADD sectors: forecastPLF comes ONLY from the additive model — there is
+    # no fallback to the LB forecast. The initial forecast_results join above
+    # populates forecastPLF with the LB value for every flight; for WADD
+    # sectors we must therefore REPLACE it with the WADD value, and BLANK it
+    # out when the WADD forecast is unavailable (empty table / no match).
+    # Otherwise the stale LB value would leak through and look like a fallback.
+    wadd_sector_mask = mkt['forecast_model'] == 'WADD'
+    wadd_available_mask = (
+        wadd_sector_mask
+        & mkt['forecastPLF_wadd'].notna()
+        & (mkt['forecastPLF_wadd'].astype(str).str.strip() != '')
+    )
+    # 1. Where WADD is available: use it for both forecastPLF and adjustedPLF
+    #    (downstream getParsedForecast reads adjustedPLF when
+    #    CanAdjustedForecast=1, so both must carry the WADD value).
+    mkt.loc[wadd_available_mask, 'forecastPLF'] = mkt['forecastPLF_wadd']
+    if 'adjustedPLF' in mkt.columns:
+        mkt.loc[wadd_available_mask, 'adjustedPLF'] = mkt['forecastPLF_wadd']
+    # 2. Where WADD sector but WADD is NOT available: clear the LB value in both
+    #    columns so no forecast is applied downstream (no fallback).
+    mkt.loc[wadd_sector_mask & ~wadd_available_mask, 'forecastPLF'] = np.nan
+    if 'adjustedPLF' in mkt.columns:
+        mkt.loc[wadd_sector_mask & ~wadd_available_mask, 'adjustedPLF'] = np.nan
+
+    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecastPLF_wadd'], inplace=True, errors='ignore')
     return mkt
 
 def get_connection_departure_dates(nav_helper, min_date, max_date):
@@ -1490,6 +1530,84 @@ def get_sector_forecast_model_map():
 
     return df
 
+
+@retry_on_connection_error(
+    max_retries=3,
+    delay=1,
+    exceptions=(ConnectionFailure, AutoReconnect)
+)
+def get_wadd_forecast(min_date, max_date):
+    """Fetch the Additive (WADD) model forecast PLF per flight.
+
+    Source: Mongo ``qp_dw_rmalloc.add_model_inventory_ng`` (the inventory
+    output of the additive pickup model).
+
+    ``Predicted_Flown_Revised`` is a flight-level value (identical across
+    every fare bucket of a flight), so we collapse the fare-bucket rows to
+    one row per ``(Origin, Destination, FlightNumber, DepartureDate)`` and
+    compute::
+
+        forecastPLF_wadd = Predicted_Flown_Revised / capacity * 100
+
+    Returns a DataFrame with columns
+    ``[DepartureDate, FlightNumber, Origin, Destination, forecastPLF_wadd]``
+    (empty with those columns when nothing matches), aligned with the shape
+    ``left_join_forecast`` expects for its merges.
+    """
+    cols = ['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF_wadd']
+
+    start_str = pd.Timestamp(min_date).strftime('%Y-%m-%d')
+    end_str = pd.Timestamp(max_date).strftime('%Y-%m-%d')
+
+    projection = {
+        '_id': 0,
+        'sector': 1,
+        'flight': 1,
+        'date': 1,
+        'capacity': 1,
+        'Predicted_Flown_Revised': 1,
+    }
+    cursor = list(
+        mongo_db['add_model_inventory_ng'].find(
+            {'date': {'$gte': start_str, '$lte': end_str}},
+            projection,
+        )
+    )
+
+    if not cursor:
+        logger.warning(
+            f"WADD forecast: no documents in add_model_inventory_ng "
+            f"for {start_str} to {end_str}"
+        )
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(cursor)
+
+    # 'date' is stored as a 'YYYY-MM-DD' string in the collection.
+    df['DepartureDate'] = pd.to_datetime(df['date'], errors='coerce').dt.normalize()
+    df['capacity'] = pd.to_numeric(df['capacity'], errors='coerce')
+    df['Predicted_Flown_Revised'] = pd.to_numeric(df['Predicted_Flown_Revised'], errors='coerce')
+
+    # sector -> Origin / Destination (first 3 / next 3 chars); flight -> FlightNumber.
+    df['Origin'] = df['sector'].astype(str).str[:3]
+    df['Destination'] = df['sector'].astype(str).str[3:6]
+    df['FlightNumber'] = df['flight']
+
+    # Predicted_Flown_Revised is flight-level (constant per flight); collapse
+    # the fare-bucket rows to one row per flight.
+    df = df.drop_duplicates(
+        subset=['Origin', 'Destination', 'FlightNumber', 'DepartureDate']
+    )
+
+    df['forecastPLF_wadd'] = np.where(
+        df['capacity'] > 0,
+        (df['Predicted_Flown_Revised'] / df['capacity']) * 100.0,
+        np.nan,
+    ).round(1)
+
+    out = df[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF_wadd']]
+    return out
+
 def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
                              booked_pax_col='bookedPax', capacity_col='capacity',
                              forecast_model_col=None, lb_forecast_col=None,
@@ -1530,7 +1648,9 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
         index=mkt_list.index
     ).round(1)
 
-    # Only switch for ML sectors where ML forecast < booked PLF
+    # Only switch for ML sectors where ML forecast < booked PLF.
+    # LB and WADD sectors are unaffected (WADD has no fallback — it always
+    # uses the additive-model forecast).
     if forecast_model_col and forecast_model_col in mkt_list.columns:
         is_ml = mkt_list[forecast_model_col].astype(str).str.strip().str.upper() == 'ML'
     else:
@@ -1737,6 +1857,10 @@ def lambda_handler(event, context):
         log_memory("after get_sector_forecast_model_map")
         logger.info(f"sector_forecast_model_map shape: {sector_forecast_model_map.shape}")
 
+        wadd_forecast_list = get_wadd_forecast(min_date, max_date)
+        log_memory("after get_wadd_forecast")
+        logger.info(f"wadd_forecast_list shape: {wadd_forecast_list.shape}")
+
         pre_filter_count = len(mkt_list)
         nav_flight_keys = set(
             zip(
@@ -1759,7 +1883,7 @@ def lambda_handler(event, context):
         logger.info(f"mkt_list after nav filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)})")
         markets_count = mkt_list.shape[0]
 
-        mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map)
+        mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map, wadd_df=wadd_forecast_list)
         log_memory("after left_join_forecast")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 

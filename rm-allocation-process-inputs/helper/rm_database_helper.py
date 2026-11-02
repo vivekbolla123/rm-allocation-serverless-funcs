@@ -286,6 +286,7 @@ class RMDatabaseHelper:
     "Expected_PLF": "$fr.Expected_PLF",
     "Flown_Target_Load": "$fr.Flown_Target_Load",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
+    "imp_forecast": "$fr.imp_forecast",
     "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},
@@ -340,7 +341,17 @@ class RMDatabaseHelper:
                             self.logger.warning(f"Error enriching with active_sectors: {e}")
                             self.mktList['forecast_model'] = None
                             self.mktList['farecap'] = None
-                    
+
+                    # WADD forecast substitution: for sectors whose forecast_model
+                    # is WADD, override forecastPLF with the additive-model forecast
+                    # (New Final Total Bookings / Capacity * 100) sourced from
+                    # add_model_fare_bucket_level_weighted. Mirrors the production
+                    # substitution done in rm-allocation-fetch-inputs.left_join_forecast.
+                    try:
+                        self._apply_wadd_forecast(self.mktList)
+                    except Exception as e:
+                        self.logger.warning(f"Error applying WADD forecast: {e}")
+
                 except Exception as e:
                     self.logger.error(f"Error in direct route aggregation: {str(e)}")
                     import traceback
@@ -796,6 +807,101 @@ class RMDatabaseHelper:
                 self.logger.error(e)
                 return False
 
+    def _apply_wadd_forecast(self, mktList):
+        """Override forecastPLF for WADD sectors with the additive-model forecast.
+
+        Source collection: ``add_model_fare_bucket_level_weighted`` (fare-bucket
+        level; ``New Final Total Bookings`` is a flight-level value identical
+        across every fare bucket of a flight). For each
+        ``(Origin, Destin, FlightNumber, DepartureDate)`` we take one value and
+        compute ``forecastPLF = New Final Total Bookings / Capacity * 100``.
+
+        Mirrors the production substitution in
+        ``rm-allocation-fetch-inputs.left_join_forecast`` so local test runs
+        exercise the same WADD behaviour. No-op when no WADD rows exist
+        or the collection is empty.
+        """
+        if mktList is None or mktList.empty:
+            return
+        if 'forecast_model' not in mktList.columns:
+            return
+
+        model_norm = mktList['forecast_model'].astype(str).str.strip().str.upper()
+        wadd_mask = model_norm == 'WADD'
+        if not wadd_mask.any():
+            return
+
+        # Ensure the target column exists so the per-row override below can write to it.
+        if 'forecastPLF' not in mktList.columns:
+            mktList['forecastPLF'] = CONST_NA
+
+        # Local test fixtures load the WADD forecast into ``forecast_results_WADD``;
+        # production stores it in ``add_model_fare_bucket_level_weighted``. Try the
+        # local collection first, then fall back to the production one.
+        docs = list(self.db['forecast_results_WADD'].find({}, {'_id': 0}))
+        if not docs:
+            docs = list(self.db['add_model_fare_bucket_level_weighted'].find({}, {'_id': 0}))
+        if not docs:
+            self.logger.warning(
+                "WADD forecast: no documents in forecast_results_WADD or "
+                "add_model_fare_bucket_level_weighted")
+            return
+
+        wadd_df = pd.DataFrame(docs)
+        wadd_df['Origin'] = wadd_df['Sector'].astype(str).str[:3]
+        wadd_df['Destin'] = wadd_df['Sector'].astype(str).str[3:6]
+        wadd_df['DepartureDate'] = wadd_df['DepartureDate'].astype(str).str.strip()
+        wadd_df['FlightNumber'] = wadd_df['FlightNumber'].astype(str).str.strip()
+
+        # Two accepted shapes:
+        #   1. Local test file: a direct ForecastPLF column.
+        #   2. Production-shaped: fare-bucket rows carrying 'Capacity' and
+        #      'New Final Total Bookings' (PLF = bookings / capacity * 100).
+        if 'ForecastPLF' in wadd_df.columns:
+            wadd_df['forecastPLF_wadd'] = pd.to_numeric(
+                wadd_df['ForecastPLF'], errors='coerce').round(1)
+        elif {'Capacity', 'New Final Total Bookings'}.issubset(wadd_df.columns):
+            wadd_df['Capacity'] = pd.to_numeric(wadd_df['Capacity'], errors='coerce')
+            wadd_df['New Final Total Bookings'] = pd.to_numeric(
+                wadd_df['New Final Total Bookings'], errors='coerce')
+            wadd_df['forecastPLF_wadd'] = (
+                (wadd_df['New Final Total Bookings'] / wadd_df['Capacity']) * 100.0
+            ).where(wadd_df['Capacity'] > 0).round(1)
+        else:
+            self.logger.warning(
+                "WADD forecast: collection missing both 'ForecastPLF' and "
+                "('Capacity','New Final Total Bookings') columns")
+            return
+
+        wadd_df = wadd_df.drop_duplicates(
+            subset=['Origin', 'Destin', 'FlightNumber', 'DepartureDate'])
+
+        # Build a lookup keyed on (Origin, Destin, FlightNumber, DepartureDate as YYYY-MM-DD).
+        wadd_lookup = {
+            (r['Origin'], r['Destin'], r['FlightNumber'], r['DepartureDate']): r['forecastPLF_wadd']
+            for _, r in wadd_df.iterrows()
+        }
+
+        def _dep_date_yyyymmdd(per_start):
+            # market_list PerStart is MM/DD/YYYY; WADD DepartureDate is YYYY-MM-DD.
+            try:
+                return pd.to_datetime(str(per_start)).strftime('%Y-%m-%d')
+            except Exception:
+                return str(per_start)
+
+        applied = 0
+        for idx in mktList.index[wadd_mask]:
+            origin = str(mktList.at[idx, 'Origin']).strip()
+            destin = str(mktList.at[idx, 'Destin']).strip()
+            flight = str(mktList.at[idx, 'FlightNumber']).strip()
+            dep_date = _dep_date_yyyymmdd(mktList.at[idx, 'PerStart'])
+            val = wadd_lookup.get((origin, destin, flight, dep_date))
+            if val is not None and not pd.isna(val):
+                mktList.at[idx, 'forecastPLF'] = val
+                applied += 1
+
+        self.logger.info(f"WADD forecast applied to {applied} WADD rows")
+
     def format_date_to_mm_dd_yyyy(self, date_val):
         try:
             if date_val is None or pd.isna(date_val):
@@ -888,6 +994,17 @@ class RMDatabaseHelper:
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
                 "grpFareAnchor": str(latest_row.grpFareAnchor),
+                # Forecast Allocation diagnostics (Change Notes – 3) for analysis.
+                "forecastBand": str(getattr(latest_row, 'forecastBand', CONST_NA)),
+                "forecastTrend": str(getattr(latest_row, 'forecastTrend', CONST_NA)),
+                "forecastLSF": str(getattr(latest_row, 'forecastLSF', CONST_NA)),
+                "forecastLast3Fare": str(getattr(latest_row, 'forecastLast3Fare', CONST_NA)),
+                "forecastLast7Fare": str(getattr(latest_row, 'forecastLast7Fare', CONST_NA)),
+                "forecastMaxOwnFare": str(getattr(latest_row, 'forecastMaxOwnFare', CONST_NA)),
+                "forecastHighestFare": str(getattr(latest_row, 'forecastHighestFare', CONST_NA)),
+                "forecastMiddleFare": str(getattr(latest_row, 'forecastMiddleFare', CONST_NA)),
+                "forecastLowestFare": str(getattr(latest_row, 'forecastLowestFare', CONST_NA)),
+                "forecastFormula": str(getattr(latest_row, 'forecastFormula', CONST_NA)),
                 # Portfolio anchor split (R9) — direct-route rows get real
                 # values; connections / sales-inventory rows leave them as
                 # ``CONST_NA``.
@@ -1130,34 +1247,99 @@ class RMDatabaseHelper:
         import re
 
         sec_clean = str(sector).replace('/', '') if sector else ''
-        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        dep_str_iso = None
+        dep_candidates = set()
+        if departure_date is not None:
+            try:
+                dep_dt = pd.to_datetime(departure_date)
+                dep_str_iso = dep_dt.strftime('%Y-%m-%d')
+                dep_candidates.add(dep_str_iso)
+                dep_candidates.add(dep_dt.strftime('%m/%d/%Y'))
+                dep_candidates.add(dep_dt.strftime('%d/%m/%Y'))
+                dep_candidates.add(f"{dep_str_iso}T00:00:00")
+                dep_candidates.add(f"{dep_str_iso} 00:00:00")
+                try:
+                    dep_candidates.add(dep_dt.to_pydatetime())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            dep_candidates.add(str(departure_date).strip())
+        dep_str = dep_str_iso
+
         flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
         flt_int = int(flt_digits) if flt_digits else None
+        flt_candidates = set()
+        if flt_int is not None:
+            flt_candidates.add(flt_int)
+            flt_candidates.add(str(flt_int))
+            flt_candidates.add(f"QP{flt_int}")
+            flt_candidates.add(f"QP {flt_int}")
+        if flight_number is not None:
+            flt_candidates.add(str(flight_number).strip())
 
         # 1. Primary: Read directly from MongoDB collection add_model_fare_bucket_level_weighted
         if hasattr(self, 'db') and self.db is not None:
             try:
                 col = getattr(self.db, 'add_model_fare_bucket_level_weighted', None)
+                if col is None and hasattr(self.db, '__getitem__'):
+                    try:
+                        col = self.db['add_model_fare_bucket_level_weighted']
+                    except Exception:
+                        col = None
+
                 if col is not None:
-                    q = {}
+                    sector_or = []
                     if sector:
-                        q["$or"] = [
+                        sector_or.extend([
                             {"Sector": sector},
                             {"Sector": sec_clean},
                             {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
-                        ]
-                    docs = list(col.find(q))
+                        ])
+
+                    conditions = []
+                    if sector_or:
+                        conditions.append({"$or": sector_or})
+                    if dep_candidates:
+                        date_or = [{"DepartureDate": {"$in": list(dep_candidates)}}]
+                        if dep_str_iso:
+                            date_or.append({"DepartureDate": {"$regex": f"^{dep_str_iso}"}})
+                        conditions.append({"$or": date_or})
+                    if flt_candidates:
+                        conditions.append({"FlightNumber": {"$in": list(flt_candidates)}})
+
+                    q = {"$and": conditions} if len(conditions) > 1 else (conditions[0] if conditions else {})
+                    # Exclude the 181 heavy NDO columns 0..180 and _id to keep network payload minimal
+                    projection = {str(i): 0 for i in range(181)}
+                    projection['_id'] = 0
+
+                    docs = list(col.find(q, projection))
+                    if not docs and flt_candidates and len(conditions) > 1:
+                        # Fallback query without flight number filter in MongoDB, filter in Python instead
+                        q_noflt = {"$and": [c for c in conditions if "FlightNumber" not in c]}
+                        docs = list(col.find(q_noflt, projection))
+                    if not docs and sector_or:
+                        # Broadest fallback if date was formatted unexpectedly
+                        docs = list(col.find({"$or": sector_or}, projection))
+
                     if docs:
                         df = pd.DataFrame(docs)
                         if '_id' in df.columns:
                             df = df.drop(columns=['_id'])
-                        if dep_str and 'DepartureDate' in df.columns:
-                            df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
+                        if dep_str_iso and 'DepartureDate' in df.columns:
+                            dep_series = pd.to_datetime(df['DepartureDate'], errors='coerce').dt.strftime('%Y-%m-%d')
+                            df_date = df[
+                                (dep_series == dep_str_iso)
+                                | (df['DepartureDate'].astype(str).str.startswith(dep_str_iso))
+                                | (df['DepartureDate'].astype(str).isin(dep_candidates))
+                            ]
+                            if not df_date.empty:
+                                df = df_date
                         if flt_int and 'FlightNumber' in df.columns:
                             flt_match = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
                             if not flt_match.empty:
                                 return flt_match
-                        if not df.empty:
+                        if not df.empty and (flt_int is None or 'FlightNumber' not in df.columns):
                             return df
             except Exception as e:
                 self.logger.warning(f"Could not query MongoDB collection add_model_fare_bucket_level_weighted: {e}")
@@ -1825,10 +2007,13 @@ class RMDatabaseHelper:
             
             if channel == B2B_CHANNEL:
                 carr_exclusion = getattr(currParams, 'carrierExclusionB2B', getattr(currParams, 'carr_exclusion_b2b', None))
+                flightExclusion = getattr(currParams, 'flightExclusionB2B', None)
             else:
                 carr_exclusion = getattr(currParams, 'carrierExclusionB2C', getattr(currParams, 'carr_exclusion_b2c', None))
+                flightExclusion = getattr(currParams, 'flightExclusionB2C', None)
     
             carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
+            flight_exclusion_list = flightExclusion.split('/') if isinstance(flightExclusion, str) and flightExclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
             try:
@@ -1877,6 +2062,7 @@ class RMDatabaseHelper:
         "$gte": start_of_day,
         "$lte": end_of_day
     },
+    **({"outbound_flight": {"$nin": flight_exclusion_list}} if flight_exclusion_list else {}),
     "$expr": {
         "$and": [
             {
@@ -2030,7 +2216,7 @@ class RMDatabaseHelper:
 
     def get_qp_fares(self, origin, destin):
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "TOTAL": {"$gt": 1}}))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -2503,7 +2689,7 @@ class RMDatabaseHelper:
             return pd.DataFrame()
 
     def fareExtract(self, origin, destination, channel, openingRBD, route):
-        query = {"Org": origin, "Dst": destination, "route": route}
+        query = {"Org": origin, "Dst": destination, "route": route, "TOTAL": {"$gt": 1}}
 
         if isinstance(channel, str):
             channel_list = [channel]
@@ -3509,4 +3695,4 @@ class RMDatabaseHelper:
             getattr(getattr(self, 'currParams', None), 'mongo_master_db', None),
             getattr(self, 'mongoclient', None)
         ]
-        return self.fetch_pricing_tax_parameters(candidate_dbs)
+        return self.fetch_pricing_tax_parameters(candidate_dbs)

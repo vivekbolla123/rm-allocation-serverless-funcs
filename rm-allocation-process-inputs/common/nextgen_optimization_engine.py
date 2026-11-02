@@ -42,6 +42,7 @@ import logging
 from Constants import (
     CONST_NA,
     DEFAULT_FIRST_RBD_SEATS,
+    NEXTGEN_OTHERRBD,
     DEFAULT_STANDARD_DEVIATION_FACTOR,
     DEFAULT_PROMO_FARE_FACTOR,
     DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
@@ -206,6 +207,76 @@ class NextGenOptimizationEngine:
         else:
             return 7
 
+    @staticmethod
+    def _apply_stepup_cap(au_series, cap):
+        """Cap the consecutive step-up across an AU_Revised series.
+
+        ``au_series`` is ordered highest-fare (index 0) .. lowest-fare (last
+        index), i.e. the same order ``AU_Revised`` is stored on ``final_df``.
+        The opening bucket is the last strictly-positive entry. Walking from
+        the opening bucket toward higher fares, each subsequent open bucket may
+        exceed the previous (already-capped) bucket by at most ``cap``. Buckets
+        whose raw value is already within the step are left unchanged (never
+        forced up). Zeros (closed buckets) are skipped and are not part of the
+        step chain. The opening bucket itself is never inflated.
+        """
+        vals = [float(x) for x in au_series]
+        n = len(vals)
+        if n == 0 or cap is None or cap <= 0:
+            return vals
+        open_idx = None
+        for i in range(n - 1, -1, -1):
+            if vals[i] > 0.0:
+                open_idx = i
+                break
+        if open_idx is None:
+            return vals
+        prev_capped = vals[open_idx]
+        for i in range(open_idx - 1, -1, -1):
+            if vals[i] <= 0.0:
+                continue
+            allowed = prev_capped + cap
+            if vals[i] > allowed:
+                vals[i] = allowed
+            prev_capped = vals[i]
+        return vals
+
+    @classmethod
+    def _apply_filed_rbd_stepup_cap(cls, mapping, filed_levels, cap, capacity):
+        """Apply the same consecutive ``+cap`` step to the filed B2C RBD map.
+
+        ``filed_levels`` is ordered highest-fare -> lowest-fare (Step 5 sorts
+        it that way), so the chain walks in reverse: from the opening
+        (lowest-fare) RBD upward. Zero (closed) RBDs are skipped. The last open
+        RBD of the filed ladder (highest fare) is anchored to the flight
+        capacity so the top of the ladder always allocates full capacity.
+        """
+        if not mapping or not filed_levels or cap is None or cap <= 0:
+            return mapping
+        prev_capped = None
+        last_open_rbd = None
+        for fl in reversed(filed_levels):
+            rbd = fl.get('RBD')
+            if rbd not in mapping:
+                continue
+            au = to_float(mapping[rbd], 0.0)
+            if au <= 0.0:
+                continue
+            if prev_capped is None:
+                prev_capped = au
+                last_open_rbd = rbd
+                continue
+            allowed = prev_capped + cap
+            if au > allowed:
+                au = allowed
+                mapping[rbd] = au
+            prev_capped = au
+            last_open_rbd = rbd
+        # Last open RBD of the ladder (highest fare) allocates full capacity.
+        if capacity is not None and capacity > 0 and last_open_rbd is not None:
+            mapping[last_open_rbd] = float(capacity)
+        return mapping
+
     @classmethod
     def compute_initial_emsr_b(
         cls,
@@ -345,46 +416,92 @@ class NextGenOptimizationEngine:
         connection_fare_flag=0,
         direct_duration_mins=None,
         additional_connection_hours=DEFAULT_ADDITIONAL_CONNECTION_DURATION,
-        coverage_param=DEFAULT_COVERAGE_PARAMETER
+        coverage_param=DEFAULT_COVERAGE_PARAMETER,
+        flight_exclusion=None
     ):
         """
         Phase 2a: Dynamically filters competitor market fares for normal direct flights:
         1. Carrier exclusion.
-        2. Connecting vs Direct: If connection_fare_flag == 1, includes connecting competitor flights
+        2. Flight exclusion (specific competitor flight numbers configured in Market List).
+        3. Connecting vs Direct: If connection_fare_flag == 1, includes connecting competitor flights
            provided their total duration <= direct_duration + additional_connection_hours * 60 mins.
            If connection_fare_flag == 0, includes only direct flights.
-        3. Departure time window: [flight_std - time_range_hours, flight_std + time_range_hours].
-        4. Modified Z-score (MAD) outlier removal using coverage_param.
+        4. Departure time window: [flight_std - time_range_hours, flight_std + time_range_hours].
+        5. Modified Z-score (MAD) outlier removal using coverage_param.
+
+        Returns (min_fare, median_fare, meta) where meta is a dict describing the
+        selected (minimum) fare's carrier / flight and diagnostics about how many
+        candidate fares each filter step removed. meta is always a dict (never None)
+        so callers can read keys unconditionally. On no-data paths min/median are None.
         """
+        empty_meta = {
+            'selected_carrier': None,
+            'selected_flight': None,
+            'n_raw': 0,
+            'n_after_window': 0,
+            'n_after_outlier': 0,
+            'window_dropped': 0,
+            'outlier_dropped': 0,
+            'window_applied': False,
+        }
+
         if market_fares is None:
-            return None, None
+            return None, None, dict(empty_meta)
 
         if isinstance(market_fares, list):
             df_mkt = pd.DataFrame(market_fares)
         elif isinstance(market_fares, pd.DataFrame):
             df_mkt = market_fares.copy()
         else:
-            return None, None
+            return None, None, dict(empty_meta)
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
+
+        # Parse an exclusion value (carrier or flight) into a normalized token list.
+        # Market List stores these values slash-delimited (e.g. "SG/6E"), but older
+        # configs / callers may pass comma- or whitespace-delimited strings, so accept
+        # all of them. Returns upper-cased, stripped tokens with 'nan'/blank removed.
+        def _parse_exclusion_tokens(value):
+            if value is None:
+                return []
+            try:
+                if pd.isna(value):
+                    return []
+            except (TypeError, ValueError):
+                pass
+            if isinstance(value, (list, tuple, set)):
+                raw_tokens = [str(v) for v in value]
+            else:
+                raw_tokens = re.split(r'[/,;|\s]+', str(value))
+            tokens = []
+            for t in raw_tokens:
+                t_clean = t.strip().upper()
+                if t_clean and t_clean not in ('NAN', 'NA', 'NONE', CONST_NA.upper()):
+                    tokens.append(t_clean)
+            return tokens
 
         # 1. Exclude carriers
         carr_col = next((c for c in ['outbound_airline_code', 'AirlineCode', 'airline_code', 'Carrier', 'carrier'] if c in df_mkt.columns), None)
-        if carr_col and carrier_exclusion is not None and not pd.isna(carrier_exclusion):
-            if isinstance(carrier_exclusion, str):
-                carr_list = [c.strip().upper() for c in carrier_exclusion.split(',') if c.strip() and c.strip().lower() != 'nan']
-            elif isinstance(carrier_exclusion, (list, tuple, set)):
-                carr_list = [str(c).strip().upper() for c in carrier_exclusion if str(c).strip() and str(c).strip().lower() != 'nan']
-            else:
-                carr_list = []
+        if carr_col and carrier_exclusion is not None:
+            carr_list = _parse_exclusion_tokens(carrier_exclusion)
             if carr_list:
-                df_mkt = df_mkt[~df_mkt[carr_col].astype(str).str.upper().isin(carr_list)]
+                df_mkt = df_mkt[~df_mkt[carr_col].astype(str).str.strip().str.upper().isin(carr_list)]
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 2. Connecting vs Direct filtering for normal flight
+        # 2. Exclude specific competitor flight numbers (flightExclusionB2C / flightExclusionB2B)
+        flight_col = next((c for c in ['outbound_flight', 'flight_number', 'FlightNumber', 'flight', 'Flight'] if c in df_mkt.columns), None)
+        if flight_col and flight_exclusion is not None:
+            flight_list = _parse_exclusion_tokens(flight_exclusion)
+            if flight_list:
+                df_mkt = df_mkt[~df_mkt[flight_col].astype(str).str.strip().str.upper().isin(flight_list)]
+
+        if df_mkt.empty:
+            return None, None, dict(empty_meta)
+
+        # 3. Connecting vs Direct filtering for normal flight
         stops_col = next((c for c in ['outbound_stops', 'stops', 'Stops', 'outbound_stop'] if c in df_mkt.columns), None)
         dur_col = next((c for c in ['outbound_duration', 'duration', 'Duration', 'flight_duration'] if c in df_mkt.columns), None)
 
@@ -415,9 +532,17 @@ class NextGenOptimizationEngine:
                     df_mkt = df_mkt[(stops_series == 0) | ((stops_series > 0) & (dur_series <= max_allowed_duration))]
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 3. Departure time window filtering
+        # Record the fare column and candidate count BEFORE the time window, so we can
+        # report how many competitor fares the window / outlier steps remove. This is
+        # the key diagnostic for "market fare too high even though cheaper fares exist":
+        # a cheaper fare departing outside the time window is silently excluded here.
+        fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in df_mkt.columns), None)
+        n_before_window = int(len(df_mkt))
+
+        # 4. Departure time window filtering
+        window_applied = False
         time_col = next((c for c in ['outbound_departuretime', 'DepTime', 'departure_time', 'dep_time', 'STD'] if c in df_mkt.columns), None)
         if time_col and flight_std and time_range_hours:
             try:
@@ -436,24 +561,28 @@ class NextGenOptimizationEngine:
                     valid_time = mkt_mins.notna() & (abs(mkt_mins - target_mins) <= window_mins)
                     if valid_time.any():
                         df_mkt = df_mkt[valid_time]
+                        window_applied = True
             except Exception:
                 pass
 
         if df_mkt.empty:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 4. Extract numeric fare
-        fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in df_mkt.columns), None)
+        # 5. Extract numeric fare (keep rows so we can report selected carrier/flight)
         if not fare_col:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        fares = pd.to_numeric(df_mkt[fare_col], errors='coerce').dropna()
-        fares = fares[fares > 0].tolist()
+        fare_series = pd.to_numeric(df_mkt[fare_col], errors='coerce')
+        df_fares = df_mkt.loc[fare_series.notna() & (fare_series > 0)].copy()
+        df_fares['_fare_num'] = pd.to_numeric(df_fares[fare_col], errors='coerce')
+        fares = df_fares['_fare_num'].tolist()
 
         if not fares:
-            return None, None
+            return None, None, dict(empty_meta)
 
-        # 5. Outlier removal via Modified Z-score (MAD)
+        n_after_window = int(len(fares))
+
+        # 6. Outlier removal via Modified Z-score (MAD)
         cov_p = to_float(coverage_param, 3.0)
         med = float(np.median(fares))
         abs_dev = [abs(f - med) for f in fares]
@@ -461,11 +590,41 @@ class NextGenOptimizationEngine:
         if mad == 0:
             mad = 0.15 * med
 
-        valid_fares = [f for f in fares if (abs(f - med) / mad) < cov_p] if mad > 0 else fares
-        if not valid_fares:
-            valid_fares = fares
+        if mad > 0:
+            keep_mask = df_fares['_fare_num'].apply(lambda f: (abs(f - med) / mad) < cov_p)
+            df_valid = df_fares[keep_mask]
+        else:
+            df_valid = df_fares
+        if df_valid.empty:
+            df_valid = df_fares
 
-        return float(min(valid_fares)), float(np.median(valid_fares))
+        valid_fares = df_valid['_fare_num'].tolist()
+        n_after_outlier = int(len(valid_fares))
+
+        # Identify the row that produced the minimum (selected) competitor fare.
+        min_fare = float(min(valid_fares))
+        min_row = df_valid.loc[df_valid['_fare_num'].idxmin()] if not df_valid.empty else None
+
+        sel_carrier = None
+        sel_flight = None
+        if min_row is not None:
+            if carr_col and carr_col in df_valid.columns:
+                sel_carrier = str(min_row.get(carr_col)) if pd.notna(min_row.get(carr_col)) else None
+            if flight_col and flight_col in df_valid.columns:
+                sel_flight = str(min_row.get(flight_col)) if pd.notna(min_row.get(flight_col)) else None
+
+        meta = {
+            'selected_carrier': sel_carrier,
+            'selected_flight': sel_flight,
+            'n_raw': n_before_window,
+            'n_after_window': n_after_window,
+            'n_after_outlier': n_after_outlier,
+            'window_dropped': max(0, n_before_window - n_after_window) if window_applied else 0,
+            'outlier_dropped': max(0, n_after_window - n_after_outlier),
+            'window_applied': window_applied,
+        }
+
+        return min_fare, float(np.median(valid_fares)), meta
 
     @classmethod
     def evaluate_grid_response(
@@ -1181,12 +1340,21 @@ class NextGenOptimizationEngine:
         cov_param_const = getattr(const_utils, 'COVERAGE_PARAMETER', getattr(const_utils, 'DEFAULT_COVERAGE_PARAMETER', DEFAULT_COVERAGE_PARAMETER))
         add_conn_dur_const = getattr(const_utils, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', DEFAULT_ADDITIONAL_CONNECTION_DURATION)
         pmin_thresh_const = getattr(const_utils, 'PMIN_THRESHOLD_FACTOR_NG', getattr(const_utils, 'pmin_threshold_factor_NG', DEFAULT_PMIN_THRESHOLD_FACTOR_NG))
+        # Maximum consecutive step-up (seats) allowed between successive
+        # AU_Revised allocations / filed B2C RBD allocations.
+        nextgen_otherrbd = to_float(
+            getattr(const_utils, 'NEXTGEN_OTHERRBD', NEXTGEN_OTHERRBD),
+            NEXTGEN_OTHERRBD,
+        )
+        if nextgen_otherrbd <= 0:
+            nextgen_otherrbd = float(NEXTGEN_OTHERRBD)
 
         raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
         buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
         comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=0)) else 0
         time_range = to_float(_get_val(curr_params, 'time_range', default=time_range_const), to_float(time_range_const, DEFAULT_TIME_RANGE))
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
+        flight_excl = _get_val(curr_params, 'flightExclusionB2C', 'flight_exclusion_b2c', 'flight_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
         # In NextGen, use raw B2C backstop from Market List directly (do not use autobackstop / b2c_backstop_final)
         raw_bs = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
@@ -1268,14 +1436,15 @@ class NextGenOptimizationEngine:
                         recal_market_fares[fare_col] = pd.to_numeric(recal_market_fares[fare_col], errors='coerce').fillna(0.0) + recal_map['DEFAULT']
 
         # Convert market fares to AIRLINE COMPONENT before calculation
-        c_min_allin, c_med_allin = cls.filter_market_fares(
+        c_min_allin, c_med_allin, mkt_meta_allin = cls.filter_market_fares(
             recal_market_fares, flight_std,
             time_range_hours=time_range,
             carrier_exclusion=carr_excl,
             connection_fare_flag=conn_fare_flag,
             direct_duration_mins=dir_dur,
             additional_connection_hours=add_conn_dur,
-            coverage_param=cov_param
+            coverage_param=cov_param,
+            flight_exclusion=flight_excl
         )
 
         converted_market_fares = recal_market_fares
@@ -1294,14 +1463,15 @@ class NextGenOptimizationEngine:
                         lambda f: tax_helper.allin_to_airline_component(float(f), origin, destin, route=route) if pd.notna(f) else f
                     )
 
-        c_min_comp, c_med_comp = cls.filter_market_fares(
+        c_min_comp, c_med_comp, mkt_meta_comp = cls.filter_market_fares(
             converted_market_fares, flight_std,
             time_range_hours=time_range,
             carrier_exclusion=carr_excl,
             connection_fare_flag=conn_fare_flag,
             direct_duration_mins=dir_dur,
             additional_connection_hours=add_conn_dur,
-            coverage_param=cov_param
+            coverage_param=cov_param,
+            flight_exclusion=flight_excl
         )
 
         # Fallback if converted_market_fares was None or tax_helper not run
@@ -1609,18 +1779,19 @@ class NextGenOptimizationEngine:
             anchor_fare=anchor_fare
         )
 
+        # Consecutive step-up cap across the AU_Revised bucket series. Applying
+        # it once here (before Step 5 reads AU_Revised) keeps the inventory CSV
+        # and the filed B2C RBD mapping consistent with the same capped series.
+        _capped_au_revised = cls._apply_stepup_cap(
+            [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()],
+            nextgen_otherrbd,
+        )
+        final_df['AU_Revised'] = _capped_au_revised
+
         # Step 5: 51 Fare Levels (airline component) Mapping & Opening Fare
-        # Nearest forecast fare below competition response fare (or anchor fare)
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
         eff_response_fare = response_fare if response_fare is not None else anchor_fare
-
-        # Nearest fare among forecast fares below competition response fare
-        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_response_fare + 1e-4]
-        if fc_below:
-            target_fc_fare, target_fc_au = fc_below[0]
-        else:
-            target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
         # Determine backstop and hardanchor values in airline component and all-in
         bs_comp = None
@@ -1651,9 +1822,38 @@ class NextGenOptimizationEngine:
                 ha_comp = float(hardanchor)
                 ha_allin = float(hardanchor)
 
-        # The effective floor on opening fare is max of backstop and hardanchor
-        eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
-        eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
+        # The effective floor on opening fare is the backstop only.
+        # Hardanchor is NOT a floor: it is a CAP (ceiling) that can only pull the
+        # opening fare DOWN, matching the legacy anchor logic
+        # (determine_rbd.py: min(fare, hardAnchor), applied only when
+        # hardAnchor < fare and PLF is below the threshold). Hardanchor was
+        # already PLF-gated at resolution time, so ha_comp/ha_allin being set
+        # here means the cap is active. It is applied after the opening fare is
+        # resolved, below.
+        eff_floor_comp = bs_comp
+        eff_floor_allin = bs_allin
+
+        # Effective target response fare considers the backstop floor
+        eff_target_fare = eff_response_fare
+        if eff_floor_comp is not None:
+            eff_target_fare = max(eff_target_fare, eff_floor_comp)
+
+        # Only forecast buckets with AU_Revised > 0 are considered open
+        open_fc = [(f, a) for f, a in zip(fc_fares, fc_aus) if a > 0.0]
+
+        # Nearest fare among open forecast fares below effective target response fare
+        if open_fc:
+            fc_below = [(f, a) for f, a in open_fc if f <= eff_target_fare + 1e-4]
+            if fc_below:
+                target_fc_fare, target_fc_au = fc_below[0]
+            else:
+                target_fc_fare, target_fc_au = open_fc[-1]
+        else:
+            fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_target_fare + 1e-4]
+            if fc_below:
+                target_fc_fare, target_fc_au = fc_below[0]
+            else:
+                target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
         # Find nearest lower among the 51 fare levels (airline component)
         open_filed = None
@@ -1675,17 +1875,47 @@ class NextGenOptimizationEngine:
             opening_fare = float(target_fc_fare)
             if eff_floor_comp is not None and opening_fare < eff_floor_comp:
                 opening_fare = eff_floor_comp
-            opening_rbd = str(final_df['FareBucket'].iloc[-1])
+            if open_fc:
+                open_cand = final_df[final_df['fare'] >= open_fc[-1][0] - 1e-4]
+                opening_rbd = str(open_cand.iloc[-1]['FareBucket']) if not open_cand.empty else str(final_df['FareBucket'].iloc[-1])
+            else:
+                opening_rbd = str(final_df['FareBucket'].iloc[-1])
+
+        # Hardanchor CAP: if the resolved opening fare exceeds the hardanchor,
+        # pull the opening fare DOWN to the hardanchor level. Hardanchor never
+        # raises the opening fare. When filed levels exist, snap down to the
+        # highest filed level at or below the hardanchor (airline component);
+        # otherwise cap the raw opening fare value. Respect the backstop floor.
+        if ha_comp is not None and ha_comp > 0 and opening_fare > ha_comp + 1e-4:
+            if filed_levels:
+                ha_cand = [fl for fl in filed_levels if fl['fare'] <= ha_comp + 1e-4]
+                if eff_floor_comp is not None:
+                    ha_cand = [fl for fl in ha_cand if fl['fare'] >= eff_floor_comp - 1e-4]
+                if ha_cand:
+                    capped_filed = ha_cand[0]  # filed_levels is descending: highest <= hardanchor
+                    opening_fare = float(capped_filed['fare'])
+                    opening_rbd = capped_filed['RBD']
+                    open_filed = capped_filed
+            else:
+                opening_fare = float(ha_comp)
+                if eff_floor_comp is not None and opening_fare < eff_floor_comp:
+                    opening_fare = eff_floor_comp
 
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
         if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
             opening_fare_allin = eff_floor_allin
+        # Hardanchor cap on the all-in opening fare (never raise above hardanchor all-in)
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+            if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+                opening_fare_allin = eff_floor_allin
 
         # Allocate inventory for each of the 51 fare levels:
         # QP fare RBDs below opening fare or below floor get AU=0.
         # The inventory at nearest forecast fare below competition response is assigned to opening 51 level.
         filed_51_au_mapping = {}
         if filed_levels:
+            min_open_au = open_fc[-1][1] if open_fc else 0.0
             for fl in filed_levels:
                 f_comp = fl['fare']
                 r_code = fl['RBD']
@@ -1693,15 +1923,24 @@ class NextGenOptimizationEngine:
                     alloc_au = 0.0
                 else:
                     matched_au = None
-                    for fc_f, au_val in zip(fc_fares, fc_aus):
-                        if f_comp >= fc_f - 1e-4:
-                            matched_au = au_val
-                            break
+                    if open_fc:
+                        for fc_f, au_val in open_fc:
+                            if f_comp >= fc_f - 1e-4:
+                                matched_au = au_val
+                                break
+                        if matched_au is None:
+                            matched_au = min_open_au
+                    else:
+                        for fc_f, au_val in zip(fc_fares, fc_aus):
+                            if f_comp >= fc_f - 1e-4:
+                                matched_au = au_val
+                                break
                     alloc_au = matched_au if matched_au is not None else 0.0
                 filed_51_au_mapping[r_code] = alloc_au
 
             # Assign inventory at nearest forecast fare below competition response to opening RBD
-            filed_51_au_mapping[opening_rbd] = target_fc_au
+            opening_allocated_au = max(to_float(target_fc_au, 0.0), min_open_au)
+            filed_51_au_mapping[opening_rbd] = opening_allocated_au
 
             # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
             for i in range(len(filed_levels) - 2, -1, -1):
@@ -1709,6 +1948,18 @@ class NextGenOptimizationEngine:
                 low_rbd = filed_levels[i+1]['RBD']
                 if filed_levels[i]['fare'] >= opening_fare - 1e-4:
                     filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
+
+        # While mapping, follow the same consecutive +cap rule: the AU assigned
+        # to each successive filed B2C RBD may exceed the previous RBD's AU by
+        # at most NEXTGEN_OTHERRBD. The last RBD of the ladder allocates full
+        # capacity. This is applied on top of the existing Step-5 mapping (the
+        # opening RBD keeps its opening allocation; closed RBDs stay zero).
+        nextgen_otherrbd_bypass = bool(filed_levels) and nextgen_otherrbd > 0
+        if nextgen_otherrbd_bypass:
+            cls._apply_filed_rbd_stepup_cap(
+                filed_51_au_mapping, filed_levels, nextgen_otherrbd, cap_val
+            )
+        filed_51_au_mapping_out = filed_51_au_mapping
 
         opening_au = filed_51_au_mapping.get(opening_rbd, target_fc_au) if filed_levels else target_fc_au
         seats_on_opening = float(int(round(opening_au)))
@@ -1753,6 +2004,12 @@ class NextGenOptimizationEngine:
                 if inv_ng is not None and not inv_ng.empty:
                     if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
                         daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
+                        # LF_Forecast_Revised is a 0-1 fraction; scale to 0-100%.
+                        # PLF can exceed 100% (capped ~110%), so a fraction may be
+                        # > 1.0 (e.g. 1.01 == 101%). Treat values <= 2.0 as
+                        # fractions; higher values are already percentages.
+                        if daily_lf is not None and 0.0 < daily_lf <= 2.0:
+                            daily_lf = daily_lf * 100.0
                     if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
                         daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
             except Exception as e:
@@ -1765,6 +2022,13 @@ class NextGenOptimizationEngine:
             opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route)
         else:
             opening_fare_allin = opening_fare
+        # Re-assert the hardanchor cap and backstop floor on the all-in opening fare.
+        # open_filed was already snapped down to the hardanchor level above, but
+        # guard here so the all-in value can never exceed the hardanchor.
+        if ha_allin is not None and ha_allin > 0 and opening_fare_allin > ha_allin + 1e-4:
+            opening_fare_allin = ha_allin
+        if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+            opening_fare_allin = eff_floor_allin
         # Strategy fare for viewing/display: show the fare from grid calculation (eff_response_fare), not ladder-mapped
         display_strategy_fare = eff_response_fare
         display_strategy_fare_allin = tax_helper.airline_component_to_allin(display_strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else display_strategy_fare
@@ -1808,6 +2072,15 @@ class NextGenOptimizationEngine:
             'MarketFare_Min_AllIn': int(round(to_float(c_min_allin, 0.0))) if c_min_allin is not None else None,
             'MarketFare_Max_AllIn': int(round(to_float(c_med_allin, 0.0))) if c_med_allin is not None else None,
             'MarketFare_Min_Comp': int(round(to_float(c_min_comp, 0.0))) if c_min_comp is not None else None,
+            # Which competitor carrier / flight produced the selected (minimum) market
+            # fare, plus how many fares the time-window / outlier steps removed. These
+            # make "why is the market fare so high / why did SG survive" debuggable
+            # directly from the run summary instead of requiring a code trace.
+            'MarketFare_Selected_Carrier': (mkt_meta_allin or {}).get('selected_carrier') or (mkt_meta_comp or {}).get('selected_carrier'),
+            'MarketFare_Selected_Flight': (mkt_meta_allin or {}).get('selected_flight') or (mkt_meta_comp or {}).get('selected_flight'),
+            'MarketFare_Candidates_Raw': (mkt_meta_allin or {}).get('n_raw'),
+            'MarketFare_Window_Dropped': (mkt_meta_allin or {}).get('window_dropped'),
+            'MarketFare_Outlier_Dropped': (mkt_meta_allin or {}).get('outlier_dropped'),
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,
@@ -1822,7 +2095,9 @@ class NextGenOptimizationEngine:
             'oal_b2c_min_airline_comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
             'oal_b2c_min_allin': to_float(c_min_allin, None) if c_min_allin is not None else None,
             'opening_rbd': opening_rbd,
-            'filed_51_au_mapping': filed_51_au_mapping
+            'filed_51_au_mapping': filed_51_au_mapping_out,
+            'nextgen_otherrbd': float(nextgen_otherrbd),
+            'nextgen_otherrbd_bypass': nextgen_otherrbd_bypass
         }
 
         return final_df, summary

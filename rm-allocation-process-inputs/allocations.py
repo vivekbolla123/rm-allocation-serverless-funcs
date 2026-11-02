@@ -813,8 +813,11 @@ class RBDAllocations:
                 # Get highest group RBD fare (GA is the highest)
                 max_group_fare = group_alloc_df['TOTAL'].max()
 
-                # Determine whether to use forecast or dplf(variance) for band calculation
-                use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast) and forecastAllocFlag == 1)
+                # Determine whether to use forecast or dplf(variance) for band calculation.
+                # imp_forecast is only non-NA when Phase E's model-aware NDO gate
+                # allowed the forecast (30 for LB/ML, 180 for WADD), so its
+                # presence already encodes the correct NDO ceiling.
+                use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast))
 
                 # Build month string for group_profile_fare_increments: "April_H1_May_H2" format
                 # Based on current date, take last 2 halves

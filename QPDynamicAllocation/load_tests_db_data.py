@@ -62,6 +62,7 @@ class Schema:
         self.load_generic_collection("salesinv_rbd_distribution", "salesinv_rbd_distribution.csv")
         self.load_generic_collection("distress_calendar", "distress_calendar.csv")
         self.load_generic_collection("forecast_results", "forecast_results.csv")
+        self.load_generic_collection("forecast_results_WADD", "forecast_results_WADD.csv")
         self.load_generic_collection("group_potential_seats", "group_potential_seats.csv")
         self.load_generic_collection("auto_b2b_factor", "auto_b2b_factor.csv")
         self.load_generic_collection("forecast_bands", "forecast_bands.csv")
