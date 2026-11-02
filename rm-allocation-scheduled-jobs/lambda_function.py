@@ -51,6 +51,7 @@ from fetchactiveflights import FetchActiveFlights
 from equipmentChange import EQTAlloc
 from payloadRestriction import PayloadRestriction
 from hold_booking_alert.hold_booking_alert import HoldBookingAlert
+from plf_daily import PlfDaily
 
 def create_logger():
     logger = logging.getLogger()
@@ -175,7 +176,8 @@ module_map = {
     "fetchactiveflights": FetchActiveFlights,
     "eqt_alloc": EQTAlloc,
     "payload_restriction": PayloadRestriction,
-    "hold_booking_alert": HoldBookingAlert
+    "hold_booking_alert": HoldBookingAlert,
+    "plf_daily": PlfDaily
 }
 
 

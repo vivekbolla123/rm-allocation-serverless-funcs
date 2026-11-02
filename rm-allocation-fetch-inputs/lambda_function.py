@@ -590,7 +590,6 @@ def get_forecast(min_date, max_date):
             fr.Variance AS forecast_variance,
             ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF,
             ROUND(COALESCE(fr_ml.AdjustedForecastPLF, fr_ml_intl.AdjustedForecastPLF), 1) AS adjustedPLF_ml,
-            fr.PLF AS forecast_run_plf,
             fr.Origin,
             fr.Destination,
             fr.FlightNumber,
@@ -600,7 +599,6 @@ def get_forecast(min_date, max_date):
             fr.ALLIN_AF_NB_LM,
             fr.ALLIN_AF_NB_LY,
             fr.Adjustment_Factor,
-            fr.Expected_PLF,
             fr.Flown_Target_Load
         FROM RM_DW_DATA.forecast_results fr
 
@@ -611,6 +609,69 @@ def get_forecast(min_date, max_date):
         WHERE fr.DepartureDate BETWEEN '{min_date}' AND '{max_date}'
     """
     return query
+
+@retry_on_connection_error(
+    max_retries=3,
+    delay=1,
+    exceptions=(ConnectionFailure, AutoReconnect)
+)
+def get_plf_daily(min_date, max_date):
+    """Fetch PLF and Expected_PLF per flight from the Mongo ``plf_daily`` collection.
+
+    This is the new source of truth for the actual load factor (``PLF``,
+    historically sourced from ``RM_DW_DATA.forecast_results.PLF`` and exposed
+    downstream as ``forecast_run_plf``) and the curve-based ``Expected_PLF``
+    (historically ``forecast_results.Expected_PLF``).
+
+    The ``plf_daily`` collection holds one document per flight key with string
+    fields ``DepartureDate`` (YYYY-MM-DD), ``Origin``, ``Destination``,
+    ``FlightNumber`` plus numeric ``PLF`` / ``Expected_PLF``. We return a frame
+    shaped like the ``forecast_results`` extract so it can be merged on
+    ``[DepartureDate, FlightNumber, Origin, Destination]``:
+
+        [DepartureDate, FlightNumber, Origin, Destination, forecast_run_plf, Expected_PLF]
+
+    (empty with those columns when nothing matches).
+    """
+    cols = ['DepartureDate', 'FlightNumber', 'Origin', 'Destination',
+            'forecast_run_plf', 'Expected_PLF']
+
+    start_str = pd.Timestamp(min_date).strftime('%Y-%m-%d')
+    end_str = pd.Timestamp(max_date).strftime('%Y-%m-%d')
+
+    projection = {
+        '_id': 0,
+        'DepartureDate': 1,
+        'Origin': 1,
+        'Destination': 1,
+        'FlightNumber': 1,
+        'PLF': 1,
+        'Expected_PLF': 1,
+    }
+    cursor = mongo_find_with_retry(
+        'plf_daily',
+        {'DepartureDate': {'$gte': start_str, '$lte': end_str}},
+        projection,
+    )
+
+    df = pd.DataFrame(cursor)
+    if df.empty:
+        logger.warning(
+            f"plf_daily: no documents for {start_str} to {end_str}"
+        )
+        return pd.DataFrame(columns=cols)
+
+    df['DepartureDate'] = pd.to_datetime(df['DepartureDate'], errors='coerce').dt.normalize()
+    df['Origin'] = df['Origin'].astype(str).str.strip()
+    df['Destination'] = df['Destination'].astype(str).str.strip()
+    df['FlightNumber'] = pd.to_numeric(df['FlightNumber'], errors='coerce').astype('Int64')
+    df['forecast_run_plf'] = pd.to_numeric(df['PLF'], errors='coerce').round(1)
+    df['Expected_PLF'] = pd.to_numeric(df['Expected_PLF'], errors='coerce').round(2)
+
+    # One row per flight key.
+    df = df.drop_duplicates(subset=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'])
+
+    return df[cols]
 
 # ==========================
 # Utility functions
@@ -918,6 +979,75 @@ def left_join_forecast(mkt_list, forecast_df, model_map, wadd_df=None):
     mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecastPLF_wadd'], inplace=True, errors='ignore')
     return mkt
 
+def merge_plf_from_plf_daily(mkt_list, plf_daily_df, dep_col, flight_col,
+                             origin_col, dest_col,
+                             plf_col='forecast_run_plf', expected_col='Expected_PLF'):
+    """Populate the PLF / Expected_PLF columns on ``mkt_list`` from plf_daily.
+
+    The Mongo ``plf_daily`` collection is the SINGLE source of truth for the
+    actual load factor (``plf_col``, downstream ``forecast_run_plf*``) and the
+    curve-based ``Expected_PLF`` (``expected_col``). There is no DW fallback:
+    flights with no matching ``plf_daily`` row (e.g. beyond the 180-day
+    horizon) get ``NaN`` for both values, by design.
+
+    ``plf_daily_df`` is the frame returned by :func:`get_plf_daily` with columns
+    ``[DepartureDate, FlightNumber, Origin, Destination, forecast_run_plf, Expected_PLF]``.
+    The join is on ``(DepartureDate, FlightNumber, Origin, Destination)``.
+    """
+    if mkt_list.empty:
+        # Still make sure the target columns exist for downstream consumers.
+        if plf_col not in mkt_list.columns:
+            mkt_list[plf_col] = np.nan
+        if expected_col not in mkt_list.columns:
+            mkt_list[expected_col] = np.nan
+        return mkt_list
+
+    left = mkt_list.copy()
+    left['_dep_norm'] = pd.to_datetime(left[dep_col], errors='coerce').dt.normalize()
+    left['_flight_norm'] = pd.to_numeric(left[flight_col], errors='coerce').astype('Int64')
+    left['_origin_norm'] = left[origin_col].astype(str).str.strip()
+    left['_dest_norm'] = left[dest_col].astype(str).str.strip()
+
+    if plf_daily_df is None or plf_daily_df.empty:
+        logger.info(f"plf_daily empty - {plf_col} / {expected_col} will be NaN")
+        left[plf_col] = np.nan
+        left[expected_col] = np.nan
+        return left.drop(columns=['_dep_norm', '_flight_norm', '_origin_norm', '_dest_norm'],
+                         errors='ignore')
+
+    right = plf_daily_df.rename(columns={
+        'forecast_run_plf': '_plf_daily_plf',
+        'Expected_PLF': '_plf_daily_expected',
+    }).copy()
+    right['_dep_norm'] = pd.to_datetime(right['DepartureDate'], errors='coerce').dt.normalize()
+    right['_flight_norm'] = pd.to_numeric(right['FlightNumber'], errors='coerce').astype('Int64')
+    right['_origin_norm'] = right['Origin'].astype(str).str.strip()
+    right['_dest_norm'] = right['Destination'].astype(str).str.strip()
+
+    merged = left.merge(
+        right[['_dep_norm', '_flight_norm', '_origin_norm', '_dest_norm',
+               '_plf_daily_plf', '_plf_daily_expected']],
+        on=['_dep_norm', '_flight_norm', '_origin_norm', '_dest_norm'],
+        how='left'
+    )
+
+    # plf_daily is the only source: assign directly (NaN where no match).
+    merged[plf_col] = merged['_plf_daily_plf']
+    merged[expected_col] = merged['_plf_daily_expected']
+
+    matched = merged['_plf_daily_plf'].notna()
+    logger.info(
+        f"plf_daily merge ({plf_col}): matched {int(matched.sum())}/{len(merged)}"
+    )
+
+    merged = merged.drop(columns=[
+        '_dep_norm', '_flight_norm', '_origin_norm', '_dest_norm',
+        '_plf_daily_plf', '_plf_daily_expected'
+    ], errors='ignore')
+
+    return merged
+
+
 def get_connection_departure_dates(nav_helper, min_date, max_date):
     """Fetch second flight departure dates using SP_GetNavitaireJourneys stored procedure.
     Includes both Connecting (2 segments) and Through (1 segment, 2 legs) flights."""
@@ -1064,7 +1194,6 @@ def filter_market_list(market_list_df, ndo0_map):
             market_date = datetime.strptime(market.get("PerStart"), "%m/%d/%Y").strftime("%Y-%m-%d")
 
             if not all([origin, destination, flight_number, market_date]):
-                logger.info(f"Skipping market due to missing data: {market}")
                 continue
 
             if market_date == current_date:
@@ -1076,16 +1205,8 @@ def filter_market_list(market_list_df, ndo0_map):
                         keep_mask[idx] = True
                     else:
                         skip_mask[idx] = True
-                        logger.info(
-                            f"[SKIP] key={key} | reason=departure_before_cutoff | "
-                            f"departure_time={departure_time} <= cutoff_time={cutoff_time}"
-                        )
                 else:
                     skip_mask[idx] = True
-                    logger.info(
-                        f"[SKIP] key={key} | reason=key_not_found_in_ndo0_map | "
-                        f"flight not present in today's Navitaire schedule"
-                    )
             else:
                 keep_mask[idx] = True
 
@@ -1861,6 +1982,10 @@ def lambda_handler(event, context):
         log_memory("after get_wadd_forecast")
         logger.info(f"wadd_forecast_list shape: {wadd_forecast_list.shape}")
 
+        plf_daily_list = get_plf_daily(min_date, max_date)
+        log_memory("after get_plf_daily")
+        logger.info(f"plf_daily_list shape: {plf_daily_list.shape}")
+
         pre_filter_count = len(mkt_list)
         nav_flight_keys = set(
             zip(
@@ -1885,6 +2010,18 @@ def lambda_handler(event, context):
 
         mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map, wadd_df=wadd_forecast_list)
         log_memory("after left_join_forecast")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
+        # Source PLF (forecast_run_plf) and Expected_PLF solely from the Mongo
+        # plf_daily collection. No DW fallback: flights beyond the plf_daily
+        # horizon (180 days) get NaN for both, by design.
+        mkt_list = merge_plf_from_plf_daily(
+            mkt_list, plf_daily_list,
+            dep_col='DepartureDate', flight_col='FlightNumber',
+            origin_col='Origin', dest_col='Destin',
+            plf_col='forecast_run_plf', expected_col='Expected_PLF'
+        )
+        log_memory("after merge_plf_from_plf_daily")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
@@ -1973,6 +2110,8 @@ def lambda_handler(event, context):
         forecast_plf_query = get_forecast(min_date, max_date)
         forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
         sector_forecast_model_map = get_sector_forecast_model_map()
+        plf_daily_list = get_plf_daily(min_date, max_date)
+        logger.info(f"plf_daily_list shape: {plf_daily_list.shape}")
         
         mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
         mkt_list['Sector1Dest'] = mkt_list['Sector1'].str[3:]
@@ -1996,13 +2135,21 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
 
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1', 'forecast_run_plf': 'forecast_run_plf1', 'Expected_PLF': 'Expected_PLF1'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+
+        # Source leg-1 PLF / Expected_PLF solely from Mongo plf_daily (no DW fallback).
+        mkt_list = merge_plf_from_plf_daily(
+            mkt_list, plf_daily_list,
+            dep_col='DepartureDate', flight_col='Flight1',
+            origin_col='Sector1Origin', dest_col='Sector1Dest',
+            plf_col='forecast_run_plf1', expected_col='Expected_PLF1'
+        )
 
         # Preserve original LB forecastPLF before ML substitution
         mkt_list['forecastPLF_lb1'] = mkt_list['forecastPLF1'].copy()
@@ -2024,13 +2171,21 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2', 'forecast_run_plf': 'forecast_run_plf2', 'Expected_PLF': 'Expected_PLF2'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+
+        # Source leg-2 PLF / Expected_PLF solely from Mongo plf_daily (no DW fallback).
+        mkt_list = merge_plf_from_plf_daily(
+            mkt_list, plf_daily_list,
+            dep_col='SecondFlightDepartureDate', flight_col='Flight2',
+            origin_col='Sector2Origin', dest_col='Sector2Dest',
+            plf_col='forecast_run_plf2', expected_col='Expected_PLF2'
+        )
         
         # Preserve original LB forecastPLF before ML substitution
         mkt_list['forecastPLF_lb2'] = mkt_list['forecastPLF2'].copy()
