@@ -52,6 +52,7 @@ WINDOW_MINUTES = 25
 
 S_CLASS_PLF_THRESHOLD = 75
 LAST_SOLD_FARE_THRESHOLD = 72
+LAST_SOLD_FARE_THRESHOLD_NDO45 = 96
 LAST_N_AVG_FARE = 7
 
 ADHOC_BATCH_SIZE = 4000
@@ -174,6 +175,7 @@ GROUP_QUOTATION_KEY = 'GROUP_QUOTATION'
 TBF_RBD_KEY = 'TBF_RBD'
 W_RBD_KEY = 'W_RBD'
 LAST_SOLD_FARE_THRESHOLD_KEY = 'LAST_SOLD_FARE_THRESHOLD'
+LAST_SOLD_FARE_THRESHOLD_NDO45_KEY = 'LAST_SOLD_FARE_THRESHOLD_NDO45'
 LAST_N_AVG_FARE_KEY = 'LAST_N_AVG_FARE'
 GROUP_DIFF_FARE_KEY = 'GROUP_DIFF_FARE'
 TBF_DIFF_FARE_KEY = 'TBF_DIFF_FARE'
@@ -323,6 +325,7 @@ OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
 BUY_UP_FACTOR_KEY = 'BUY_UP_FACTOR'
 DEFAULT_FIRST_RBD_SEATS_KEY = 'DEFAULT_FIRST_RBD_SEATS'
 FIRST_RBD_ALLOC_KEY = 'FirstRBDAlloc'
+NEXTGEN_OTHERRBD_KEY = 'NEXTGEN_OTHERRBD'
 DEFAULT_STANDARD_DEVIATION_FACTOR_KEY = 'DEFAULT_STANDARD_DEVIATION_FACTOR'
 DEFAULT_PROMO_FARE_FACTOR_KEY = 'DEFAULT_PROMO_FARE_FACTOR'
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY = 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU'
@@ -437,6 +440,9 @@ CONST_SUMMARY_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "ge
 
 # NextGen AU Optimization & Competition Response Parameters
 DEFAULT_FIRST_RBD_SEATS = 20
+# Maximum consecutive step-up (seats) allowed between successive AU_Revised
+# allocations in the NextGen optimisation ladder / filed B2C RBD mapping.
+NEXTGEN_OTHERRBD = 20
 DEFAULT_STANDARD_DEVIATION_FACTOR = 0.25
 DEFAULT_PROMO_FARE_FACTOR = 0.80
 DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
@@ -464,6 +470,8 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
     'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor',
+    'forecastBand', 'forecastTrend', 'forecastLSF', 'forecastLast3Fare', 'forecastLast7Fare',
+    'forecastMaxOwnFare', 'forecastHighestFare', 'forecastMiddleFare', 'forecastLowestFare', 'forecastFormula',
     'NG_LF_Forecast', 'NG_AF_Forecast', 'NG_Historical_current_booked',
     'NG_Opening_fare', 'NG_FirstRBD', 'NG_Strategy_fare', 'NG_Anchor_fare'
 ]
@@ -472,11 +480,14 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
     'NG_FirstRBD', 'Predicted_Flown_Revised',
     'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'MarketFare_Selected_Carrier', 'MarketFare_Selected_Flight',
+    'MarketFare_Candidates_Raw', 'MarketFare_Window_Dropped', 'MarketFare_Outlier_Dropped',
     'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
     'buy_up_factor', 'RunId', 'Id',
     'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
     'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
-    'analystName', 'status', 'allocationStatus'
+    'analystName', 'status', 'allocationStatus',
+    'ConversionRate', 'Currency'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
@@ -491,7 +502,8 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
     'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
+    'SnapshotDate', 'Tagging', 'FareBucket', 'RunId',
+    'ConversionRate', 'Currency'
 ]
 
 

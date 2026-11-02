@@ -1,0 +1,359 @@
+# Synthesized CloudFormation template for uat-rm-lambda-rm-allocation-scheduled-jobs
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Dedicated infrastructure stack for uat-rm-lambda-rm-allocation-scheduled-jobs
+Parameters: {}
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/uat-rm-lambda-rm-allocation-scheduled-jobs
+      RetentionInDays: 30
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    DependsOn:
+    - LogGroup
+    Properties:
+      FunctionName: uat-rm-lambda-rm-allocation-scheduled-jobs
+      Description: Scheduled jobs orchestrator for RM dynamic allocation
+      PackageType: Image
+      Code:
+        ImageUri: 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-ecr-rm-allocation-scheduled-jobs:latest
+      Role: arn:aws:iam::891377165721:role/lambda-execution-role
+      Timeout: 900
+      MemorySize: 4096
+      EphemeralStorage:
+        Size: 4096
+      Architectures:
+      - x86_64
+      Environment:
+        Variables:
+          env: uat
+          DD_LAMBDA_HANDLER: lambda_function.lambda_handler
+          DD_SITE: datadoghq.com
+          DD_ENV: uat
+          DD_SERVICE: rm-scheduled-jobs
+          DD_VERSION: latest
+          DD_TRACE_ENABLED: 'true'
+          DD_DATA_STREAMS_ENABLED: 'true'
+          DD_SERVERLESS_LOGS_ENABLED: 'true'
+          DD_LOGS_INJECTION: 'true'
+          DD_COLD_START_TRACING: 'false'
+          DD_TAGS: env:uat,service:rm-allocation-scheduled-jobs,Department:RM,team:RM
+      Tags:
+      - Key: Environment
+        Value: uat
+      - Key: Service
+        Value: rm-allocation-scheduled-jobs
+      - Key: ManagedBy
+        Value: InfraAsCode
+      - Key: Department
+        Value: RM
+      VpcConfig:
+        SubnetIds:
+        - subnet-053e2b8d03017c388
+        - subnet-0a05a901a38cd5672
+        SecurityGroupIds:
+        - sg-087f8184f725ec3fe
+  EventBridgeRule1:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: QCProcess
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: QCProcess-target
+        Input: '{"body": {"modules": {"gen_qc_fares_table": 1}}}'
+      ScheduleExpression: cron(30 17 ? * sat *)
+      Description: Create min max table for historic and profile fares
+  LambdaPermissionRule1:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule1
+        - Arn
+  EventBridgeRule2:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: QC_Check
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: QC_Check-target
+        Input: '{"body": {"modules": {"qc_fares_check": 1}}}'
+      ScheduleExpression: cron(30 17 ? * sun *)
+      Description: Compare and check minMax tables with the original fares tables
+  LambdaPermissionRule2:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule2
+        - Arn
+  EventBridgeRule3:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: connections
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: connections-target
+        Input: '{"body": {"modules": {"mark_run_completed": 1, "sftp_push": 1, "connections":
+          1}}}'
+      ScheduleExpression: cron(*/15 * ? * * *)
+      Description: all
+  LambdaPermissionRule3:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule3
+        - Arn
+  EventBridgeRule4:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: daily_rolling
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: daily_rolling-target
+        Input: '{"body": {"modules": {"daily_rolling": 1}}}'
+      ScheduleExpression: cron(0 17 ? * MON-FRI *)
+  LambdaPermissionRule4:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule4
+        - Arn
+  EventBridgeRule5:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: noshowprobs
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: noshowprobs-target
+        Input: '{"body": {"modules": {"noShowProb": 1}}}'
+      ScheduleExpression: rate(5 hours)
+      Description: noshowprobs
+  LambdaPermissionRule5:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule5
+        - Arn
+  EventBridgeRule6:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rm-allocation-report-gen
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: rm-allocation-report-gen-target
+        Input: '{"body": {"modules": {"alloc_summary": 1}}}'
+      ScheduleExpression: cron(*/5 * ? * * *)
+      Description: Report Generation
+  LambdaPermissionRule6:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule6
+        - Arn
+  EventBridgeRule7:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: rm-allocation-sftp-error
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: rm-allocation-sftp-error-target
+        Input: '{"body": {"modules": {"sftp_error": 1, "sftp_push": 1}}}'
+      ScheduleExpression: cron(0/5 * ? * * *)
+      Description: sftp error rate
+  LambdaPermissionRule7:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule7
+        - Arn
+  EventBridgeRule8:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: run_paused_runs
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: run_paused_runs-target
+        Input: '{"body": {"modules": {"run_paused_runs": 1}}}'
+      ScheduleExpression: cron(*/5 * ? * * *)
+  LambdaPermissionRule8:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule8
+        - Arn
+  EventBridgeRule9:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: schd_run_fail_alert
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: schd_run_fail_alert-target
+        Input: '{"body": {"modules": {"schd_run_fail_alert": 1}}}'
+      ScheduleExpression: cron(0 * ? * * *)
+  LambdaPermissionRule9:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule9
+        - Arn
+  EventBridgeRule10:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: uat-check-adhocs-queue
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: uat-check-adhocs-queue-target
+        Input: '{"body": {"modules": {"run_adhocs_queue": 1}}}'
+      ScheduleExpression: cron(0/3 * ? * * *)
+  LambdaPermissionRule10:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule10
+        - Arn
+  EventBridgeRule11:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: uat-rm-imp-forecast
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - LambdaFunction
+          - Arn
+        Id: uat-rm-imp-forecast-target
+        Input: '{"body": {"modules": {"imputed_forecast": 1}}}'
+      ScheduleExpression: cron(0 * * * ? *)
+  LambdaPermissionRule11:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - LambdaFunction
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EventBridgeRule11
+        - Arn
+Outputs:
+  FunctionName:
+    Description: Lambda Function Name
+    Value: uat-rm-lambda-rm-allocation-scheduled-jobs
+  FunctionArn:
+    Description: Lambda Function ARN
+    Value:
+      Fn::GetAtt:
+      - LambdaFunction
+      - Arn
