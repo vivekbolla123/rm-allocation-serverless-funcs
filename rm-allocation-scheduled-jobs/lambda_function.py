@@ -30,6 +30,7 @@ from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
+from navitaireCache import NavitaireCache
 from input_audits import S3AuditProcessor
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
@@ -156,6 +157,7 @@ module_map = {
     "update_calendar": CalendarUpdate,
     "expected_no_shows": ExpectedNoShows,
     "schedule_thirty": ScheduleThirty,
+    "navitaire_cache": NavitaireCache,
     "input_audits": S3AuditProcessor,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
