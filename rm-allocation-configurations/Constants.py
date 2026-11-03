@@ -291,6 +291,7 @@ FARECAP_DISTANCE_CONFIG_KEY = "FARECAP_DISTANCE_CONFIG"
 YQ_DISTANCE_CONFIG_KEY = "YQ_DISTANCE_CONFIG"
 CURRENCY_ROUND_OFF_LIST_KEY = "CURRENCY_ROUND_OFF_LIST"
 ACTIVE_SECTORS_DEFAULT_FIELDS_KEY = "ACTIVE_SECTORS_DEFAULT_FIELDS"
+NAV_CACHE_CONFIG_KEY = "NAV_CACHE_CONFIG"
 DEFAULT_ML_CONFIG_KEY = "DEFAULT_ML_CONFIG"
 DEFAULT_ML_CALC_CONFIG_KEY = "DEFAULT_ML_CALC_CONFIG"
 PLF_CHANGE_PER_KEY = "plf_change_per"
@@ -667,6 +668,8 @@ GDS_MAPPING = {
 }
 
 ACTIVE_SECTORS_DEFAULT_FIELDS = '{"forecast_model": "LB", "farecap": "30000"}'
+
+NAV_CACHE_CONFIG = {"BATCH_DAYS": 30, "MONGO_BATCH_SIZE": 5000}
 GDS_RBD_VALUES = "Y,B,C,D,E,F,H,I,J,K,M,N2,O2,P2,Q2,R2,T2,U2,V2,Z4,W6,L,X,A"
 
 EQT_RECIPIENTS = "FlightAnalyst@akasaair.com,rmsupport@akasaair.com,closed.rm.it@akasaair.com"
@@ -859,6 +862,9 @@ ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = {
     "overBooking": "OverBooking",
     "cugFlag": "CugFlag",
     "mktFareFlag": "MktFareFlag",
+    # NextGen (_NG) fields where the Java bean name differs from @Column(name):
+    "competitionResponseGrid_NG": "CompetitionResponseGrid_NG",
+    "promoFlag_NG": "PromoFlag_NG",
 }
 
 ML_FLAG_COLUMNS = {
